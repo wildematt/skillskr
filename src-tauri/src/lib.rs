@@ -675,7 +675,10 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
-                restore_window_state(&window.as_ref().window());
+                let host_window = window.as_ref().window();
+                restore_window_state(&host_window);
+                let _ = host_window.show();
+                let _ = host_window.set_focus();
             }
             Ok(())
         })
