@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Button, ScrollShadow, Spinner } from "@heroui/react";
 import { ClaudeCode, Cline, Codex, Cursor, GithubCopilot, Windsurf } from "@lobehub/icons";
 import noSkillsIllustration from "./assets/no-skills.svg";
+import noSkillsIllustrationDark from "./assets/no-skills-dark.svg";
 import {
   ArrowLeft,
   ArrowRight,
@@ -120,6 +121,21 @@ type PersistedAppState = {
   skillCollections: Record<string, string>;
 };
 
+type AppTheme = "light" | "dark";
+
+type SkillSiteTabKey = "openclaw" | "skills";
+
+type SkillSite = {
+  label: string;
+  url: string;
+};
+
+type SkillSiteTab = {
+  key: SkillSiteTabKey;
+  label: string;
+  sites: SkillSite[];
+};
+
 const FAVORITES_KEY = "skillskr.favorites.v1";
 const COLLECTIONS_KEY = "skillskr.collections.v1";
 const SKILL_COLLECTIONS_KEY = "skillskr.skillCollections.v1";
@@ -132,9 +148,27 @@ const LEFT_MAX = 420;
 const MIDDLE_MIN = 260;
 const MIDDLE_MAX = 520;
 const DETAIL_MIN = 360;
-const SKILL_SITES = [
-  { label: "SkillHub", url: "https://skillhub.tencent.com/" },
-  { label: "ClawHub", url: "https://clawhub.ai/" },
+const SKILL_SITE_TABS: SkillSiteTab[] = [
+  {
+    key: "skills",
+    label: "Skills",
+    sites: [
+      { label: "ComposioHQ/awesome-claude-skills", url: "https://github.com/ComposioHQ/awesome-claude-skills" },
+      { label: "JimLiu/baoyu-skills", url: "https://github.com/JimLiu/baoyu-skills" },
+      { label: "anthropics/skills", url: "https://github.com/anthropics/skills" },
+      { label: "stellarlinkco/myclaude", url: "https://github.com/stellarlinkco/myclaude" },
+      { label: "pbakaus/impeccable", url: "https://github.com/pbakaus/impeccable" },
+      { label: "vercel-labs/skills", url: "https://github.com/vercel-labs/skills" },
+    ],
+  },
+  {
+    key: "openclaw",
+    label: "OpenClaw",
+    sites: [
+      { label: "SkillHub", url: "https://skillhub.tencent.com/" },
+      { label: "ClawHub", url: "https://clawhub.ai/" },
+    ],
+  },
 ];
 
 const COLLECTION_ICON_OPTIONS: Array<{ key: CollectionIconKey; label: string }> = [
@@ -323,6 +357,21 @@ function loadLocalAppState(): PersistedAppState {
   };
 }
 
+function resolvePreferredTheme(): AppTheme {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return "light";
+  }
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function clampFloatingMenuPosition(x: number, y: number, width: number, height: number) {
+  const viewportPadding = 8;
+  return {
+    x: Math.min(Math.max(x, viewportPadding), Math.max(viewportPadding, window.innerWidth - width - viewportPadding)),
+    y: Math.min(Math.max(y, viewportPadding), Math.max(viewportPadding, window.innerHeight - height - viewportPadding)),
+  };
+}
+
 function hasPersistedAppState(state: PersistedAppState): boolean {
   return state.favorites.length > 0 || state.collections.length > 0 || Object.keys(state.skillCollections).length > 0;
 }
@@ -350,6 +399,7 @@ function App() {
   const [search, setSearch] = useState("");
   const [activeView, setActiveView] = useState<"preview" | "edit">("preview");
   const [sidebarKey, setSidebarKey] = useState("library:all");
+  const lastScrolledSidebarKeyRef = useRef(sidebarKey);
 
   const [loadingSkills, setLoadingSkills] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -365,6 +415,8 @@ function App() {
   const [skillContextMenu, setSkillContextMenu] = useState<SkillContextMenuState | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirmState | null>(null);
   const [newSkillLinksOpen, setNewSkillLinksOpen] = useState(false);
+  const [newSkillTab, setNewSkillTab] = useState<SkillSiteTabKey>("skills");
+  const [themeMode, setThemeMode] = useState<AppTheme>(() => resolvePreferredTheme());
   const [collectionsPopupOpen, setCollectionsPopupOpen] = useState(false);
   const [collectionDraftName, setCollectionDraftName] = useState("");
   const [collectionDraftIcon, setCollectionDraftIcon] = useState<CollectionIconKey>("folder");
@@ -495,8 +547,13 @@ function App() {
     [filteredSkills.length, loadingSkills, search, sidebarKey],
   );
 
-  function getFilteredSkillsBySidebarKey(nextSidebarKey: string): SkillSummary[] {
-    const q = search.trim().toLowerCase();
+  const activeSkillSiteTab = useMemo(
+    () => SKILL_SITE_TABS.find((tab) => tab.key === newSkillTab) ?? SKILL_SITE_TABS[0],
+    [newSkillTab],
+  );
+
+  function getFilteredSkillsBySidebarKey(nextSidebarKey: string, query = search): SkillSummary[] {
+    const q = query.trim().toLowerCase();
     return skills.filter((skill) => {
       if (nextSidebarKey === "library:favorites" && !favorites.includes(skill.path)) {
         return false;
@@ -548,14 +605,35 @@ function App() {
     if (!existsInCurrentList) {
       return;
     }
+    const sidebarChanged = lastScrolledSidebarKeyRef.current !== sidebarKey;
     const frameId = window.requestAnimationFrame(() => {
       skillRowRefs.current[selectedPath]?.scrollIntoView({
-        block: "nearest",
+        block: sidebarChanged ? "center" : "nearest",
         inline: "nearest",
       });
+      lastScrolledSidebarKeyRef.current = sidebarKey;
     });
     return () => window.cancelAnimationFrame(frameId);
   }, [filteredSkills, selectedPath, sidebarKey]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const syncTheme = (event?: MediaQueryList | MediaQueryListEvent) => {
+      const matches = event ? event.matches : mediaQuery.matches;
+      setThemeMode(matches ? "dark" : "light");
+    };
+
+    syncTheme(mediaQuery);
+    mediaQuery.addEventListener("change", syncTheme);
+    return () => mediaQuery.removeEventListener("change", syncTheme);
+  }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.theme = themeMode;
+    root.classList.toggle("dark", themeMode === "dark");
+    root.classList.toggle("light", themeMode === "light");
+  }, [themeMode]);
 
   useEffect(() => {
     localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
@@ -680,8 +758,12 @@ function App() {
   }
 
   async function handleSidebarKeyChange(nextSidebarKey: string) {
+    const hadSearchQuery = search.trim().length > 0;
+    if (hadSearchQuery) {
+      setSearch("");
+    }
     setSidebarKey(nextSidebarKey);
-    const nextFilteredSkills = getFilteredSkillsBySidebarKey(nextSidebarKey);
+    const nextFilteredSkills = getFilteredSkillsBySidebarKey(nextSidebarKey, hadSearchQuery ? "" : search);
     if (nextFilteredSkills.length === 0) {
       return;
     }
@@ -790,18 +872,7 @@ function App() {
     event.stopPropagation();
     setSkillContextMenu(null);
 
-    const menuWidth = 220;
-    const menuHeight = 84;
-    const viewportPadding = 8;
-    const x = Math.min(
-      Math.max(event.clientX, viewportPadding),
-      window.innerWidth - menuWidth - viewportPadding,
-    );
-    const y = Math.min(
-      Math.max(event.clientY, viewportPadding),
-      window.innerHeight - menuHeight - viewportPadding,
-    );
-    setCollectionContextMenu({ id: collection.id, x, y });
+    setCollectionContextMenu({ id: collection.id, x: event.clientX, y: event.clientY });
   }
 
   function requestRenameCollection() {
@@ -942,23 +1013,11 @@ function App() {
     event.stopPropagation();
     setCollectionContextMenu(null);
 
-    const menuWidth = 220;
-    const menuHeight = 92;
-    const viewportPadding = 8;
-    const x = Math.min(
-      Math.max(event.clientX, viewportPadding),
-      window.innerWidth - menuWidth - viewportPadding,
-    );
-    const y = Math.min(
-      Math.max(event.clientY, viewportPadding),
-      window.innerHeight - menuHeight - viewportPadding,
-    );
-
     setSkillContextMenu({
       path: skill.path,
       name: skill.name,
-      x,
-      y,
+      x: event.clientX,
+      y: event.clientY,
     });
   }
 
@@ -1177,6 +1236,54 @@ function App() {
   }, [newSkillLinksOpen]);
 
   useEffect(() => {
+    if (!skillContextMenu) {
+      return;
+    }
+    const menuEl = skillContextMenuRef.current;
+    if (!menuEl) {
+      return;
+    }
+    const frameId = window.requestAnimationFrame(() => {
+      const rect = menuEl.getBoundingClientRect();
+      setSkillContextMenu((prev) => {
+        if (!prev) {
+          return prev;
+        }
+        const next = clampFloatingMenuPosition(prev.x, prev.y, rect.width, rect.height);
+        if (next.x === prev.x && next.y === prev.y) {
+          return prev;
+        }
+        return { ...prev, ...next };
+      });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [skillContextMenu]);
+
+  useEffect(() => {
+    if (!collectionContextMenu) {
+      return;
+    }
+    const menuEl = collectionsMenuRef.current;
+    if (!menuEl) {
+      return;
+    }
+    const frameId = window.requestAnimationFrame(() => {
+      const rect = menuEl.getBoundingClientRect();
+      setCollectionContextMenu((prev) => {
+        if (!prev) {
+          return prev;
+        }
+        const next = clampFloatingMenuPosition(prev.x, prev.y, rect.width, rect.height);
+        if (next.x === prev.x && next.y === prev.y) {
+          return prev;
+        }
+        return { ...prev, ...next };
+      });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [collectionContextMenu]);
+
+  useEffect(() => {
     if (!collectionContextMenu) {
       return;
     }
@@ -1310,6 +1417,16 @@ function App() {
     handleResizeStart("middle", event);
   }
 
+  function handleToggleNewSkillLinks() {
+    setNewSkillLinksOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        setNewSkillTab("skills");
+      }
+      return next;
+    });
+  }
+
   return (
     <IconContext.Provider value={{ weight: "bold", size: 16 }}>
       <main
@@ -1410,17 +1527,35 @@ function App() {
           </ScrollShadow>
           <div className="left-bottom-actions" ref={newSkillActionsRef}>
             {newSkillLinksOpen ? (
-              <div className="new-skill-links shadow-sm" role="menu" aria-label="New skill websites">
-                {SKILL_SITES.map((site) => (
-                  <button
-                    key={site.url}
-                    className="new-skill-link-btn"
-                    role="menuitem"
-                    onClick={() => void handleOpenSkillSite(site.url)}
-                  >
-                    {site.label}
-                  </button>
-                ))}
+              <div className="new-skill-links shadow-sm" aria-label="New skill websites">
+                <div className="new-skill-tabs" role="tablist" aria-label="Skill source groups">
+                  {SKILL_SITE_TABS.map((tab) => (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={newSkillTab === tab.key}
+                      className={`new-skill-tab-btn ${newSkillTab === tab.key ? "active" : ""}`}
+                      onClick={() => setNewSkillTab(tab.key)}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="new-skill-links-list" role="menu" aria-label={`${activeSkillSiteTab.label} skill websites`}>
+                  {activeSkillSiteTab.sites.map((site) => (
+                    <button
+                      key={site.url}
+                      type="button"
+                      className="new-skill-link-btn"
+                      role="menuitem"
+                      onClick={() => void handleOpenSkillSite(site.url)}
+                    >
+                      <span className="new-skill-link-label">{site.label}</span>
+                      <span className="new-skill-link-url">{site.url}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             ) : null}
             <button className="left-action-btn" aria-label="Refresh" onClick={() => void handleRefreshSkills()}>
@@ -1430,7 +1565,7 @@ function App() {
               className="left-action-btn"
               aria-expanded={newSkillLinksOpen}
               aria-label="New Skill"
-              onClick={() => setNewSkillLinksOpen((prev) => !prev)}
+              onClick={handleToggleNewSkillLinks}
             >
               <Plus size={16} />
             </button>
@@ -1496,7 +1631,11 @@ function App() {
               </div>
             ) : filteredSkills.length === 0 ? (
               <div className="skills-empty" aria-live="polite">
-                <img src={noSkillsIllustration} alt="No skills" className="skills-empty-image" />
+                <img
+                  src={themeMode === "dark" ? noSkillsIllustrationDark : noSkillsIllustration}
+                  alt="No skills"
+                  className="skills-empty-image"
+                />
                 <p className="skills-empty-title">No Skills</p>
               </div>
             ) : (
@@ -1686,7 +1825,7 @@ function App() {
                   <MarkdownPreview
                     className="markdown-body"
                     source={previewContent}
-                    wrapperElement={{ "data-color-mode": "light" }}
+                    wrapperElement={{ "data-color-mode": themeMode }}
                   />
                 </ScrollShadow>
               ) : (

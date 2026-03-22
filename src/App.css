@@ -5,6 +5,72 @@
   color: var(--foreground);
   background: var(--background);
   font-family: "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --app-canvas: linear-gradient(180deg, color-mix(in oklch, var(--background) 94%, var(--surface) 6%), var(--background));
+  --app-panel: color-mix(in oklch, var(--surface) 96%, var(--background) 4%);
+  --app-panel-soft: color-mix(in oklch, var(--surface) 68%, var(--default) 32%);
+  --app-hover: color-mix(in oklch, var(--default) 62%, transparent);
+  --app-hover-strong: color-mix(in oklch, var(--default) 82%, var(--surface));
+  --app-selected: var(--default);
+  --app-selected-soft: color-mix(in oklch, var(--default) 88%, transparent);
+  --app-border: color-mix(in oklch, var(--separator) 88%, transparent);
+  --app-border-strong: color-mix(in oklch, var(--separator) 96%, transparent);
+  --app-input: color-mix(in oklch, var(--default) 44%, transparent);
+  --app-input-strong: color-mix(in oklch, var(--default) 60%, transparent);
+  --app-code: color-mix(in oklch, var(--default) 75%, transparent);
+  --app-toolbar-pill: color-mix(in oklch, var(--default) 84%, transparent);
+  --app-overlay-scrim: rgb(16 18 24 / 0.12);
+  --app-overlay-scrim-strong: rgb(16 18 24 / 0.22);
+}
+
+[data-theme="dark"] {
+  --background: oklch(16.8% 0.014 274);
+  --foreground: oklch(96.8% 0.004 286);
+  --surface: oklch(21.4% 0.016 274);
+  --surface-foreground: var(--foreground);
+  --surface-secondary: oklch(24.8% 0.017 274);
+  --surface-secondary-foreground: var(--foreground);
+  --surface-tertiary: oklch(28.2% 0.019 274);
+  --surface-tertiary-foreground: var(--foreground);
+  --overlay: oklch(22.8% 0.017 274);
+  --overlay-foreground: var(--foreground);
+  --default: oklch(27.2% 0.013 274);
+  --default-foreground: var(--foreground);
+  --muted: oklch(73.5% 0.017 274);
+  --separator: oklch(31.5% 0.015 274);
+  --border: oklch(34.5% 0.016 274);
+  --accent: oklch(70.2% 0.126 250.4);
+  --accent-foreground: oklch(18.6% 0.013 274);
+  --warning: oklch(80.8% 0.135 79.4);
+  --warning-foreground: oklch(18.6% 0.013 274);
+  --danger: oklch(66.2% 0.188 27.4);
+  --danger-foreground: var(--foreground);
+  --field-background: color-mix(in oklch, var(--surface) 88%, var(--default) 12%);
+  --field-foreground: var(--foreground);
+  --field-border: color-mix(in oklch, var(--separator) 88%, transparent);
+  --overlay-shadow:
+    0 18px 40px rgb(2 8 20 / 0.44),
+    inset 0 1px 0 rgb(255 255 255 / 0.03);
+  --surface-shadow:
+    0 14px 30px rgb(2 8 20 / 0.22),
+    inset 0 1px 0 rgb(255 255 255 / 0.02);
+  --field-shadow: inset 0 1px 0 rgb(255 255 255 / 0.02);
+  --app-canvas:
+    radial-gradient(circle at top left, color-mix(in oklch, var(--accent) 15%, transparent) 0%, transparent 34%),
+    linear-gradient(180deg, color-mix(in oklch, var(--background) 78%, var(--surface) 22%), var(--background));
+  --app-panel: color-mix(in oklch, var(--surface) 92%, var(--background) 8%);
+  --app-panel-soft: color-mix(in oklch, var(--surface-secondary) 72%, var(--background) 28%);
+  --app-hover: color-mix(in oklch, var(--default) 82%, transparent);
+  --app-hover-strong: color-mix(in oklch, var(--default) 94%, transparent);
+  --app-selected: color-mix(in oklch, var(--accent) 13%, var(--surface));
+  --app-selected-soft: color-mix(in oklch, var(--accent) 18%, var(--default));
+  --app-border: color-mix(in oklch, var(--separator) 96%, transparent);
+  --app-border-strong: color-mix(in oklch, var(--separator) 100%, transparent);
+  --app-input: color-mix(in oklch, var(--default) 78%, var(--surface));
+  --app-input-strong: color-mix(in oklch, var(--default) 88%, var(--surface));
+  --app-code: color-mix(in oklch, var(--default) 74%, var(--surface));
+  --app-toolbar-pill: color-mix(in oklch, var(--default) 88%, transparent);
+  --app-overlay-scrim: rgb(2 8 20 / 0.42);
+  --app-overlay-scrim-strong: rgb(2 8 20 / 0.58);
 }
 
 * {
@@ -24,6 +90,9 @@ body {
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: var(--app-canvas);
+  color: var(--foreground);
+  transition: background-color 0.18s var(--ease-out-fluid), color 0.18s var(--ease-out-fluid);
 }
 
 .app-shell {
@@ -32,7 +101,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background: var(--background);
+  background: var(--app-canvas);
 }
 
 .window-drag-region {
@@ -86,9 +155,46 @@ body {
   bottom: calc(100% + 8px);
   z-index: 45;
   border-radius: 10px;
-  border: 1px solid color-mix(in oklch, var(--separator) 90%, transparent);
-  background: var(--surface);
+  border: 1px solid var(--app-border-strong);
+  background: var(--overlay);
+  box-shadow: var(--overlay-shadow);
   padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.new-skill-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-bottom: 2px;
+}
+
+.new-skill-tab-btn {
+  flex: 1;
+  min-height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.new-skill-tab-btn:hover {
+  color: var(--foreground);
+  background: color-mix(in oklch, var(--default) 56%, transparent);
+}
+
+.new-skill-tab-btn.active {
+  color: var(--foreground);
+  background: color-mix(in oklch, var(--default) 76%, var(--surface));
+}
+
+.new-skill-links-list {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -96,22 +202,47 @@ body {
 
 .new-skill-link-btn {
   width: 100%;
+  min-width: 0;
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: var(--foreground);
   padding: 6px 8px;
   text-align: left;
-  font-size: 12px;
-  line-height: 1.35;
   cursor: pointer;
   word-break: break-all;
   user-select: none;
   -webkit-user-select: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
 }
 
 .new-skill-link-btn:hover {
   background: color-mix(in oklch, var(--default) 62%, transparent);
+}
+
+.new-skill-link-label {
+  display: block;
+  min-width: 0;
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.new-skill-link-url {
+  display: block;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .left-action-btn {
@@ -119,7 +250,7 @@ body {
   min-height: 34px;
   border: 0;
   border-radius: 10px;
-  background: color-mix(in oklch, var(--default) 72%, transparent);
+  background: var(--app-input-strong);
   color: var(--foreground);
   display: inline-flex;
   align-items: center;
@@ -138,8 +269,18 @@ body {
   height: 14px;
 }
 
+[data-theme="dark"] .left-action-btn {
+  background: color-mix(in oklch, var(--default) 62%, transparent);
+  color: color-mix(in oklch, var(--foreground) 78%, transparent);
+}
+
+[data-theme="dark"] .left-action-btn:hover {
+  background: color-mix(in oklch, var(--default) 74%, transparent);
+  color: color-mix(in oklch, var(--foreground) 98%, white 2%);
+}
+
 .left-action-btn:hover {
-  background: color-mix(in oklch, var(--default) 88%, transparent);
+  background: var(--app-hover-strong);
 }
 
 .left-action-btn:active {
@@ -160,13 +301,13 @@ body {
   left: 50%;
   width: 1px;
   transform: translateX(-0.5px);
-  background: color-mix(in oklch, var(--separator) 80%, transparent);
+  background: var(--app-border);
   transition: none;
 }
 
 .pane-resizer:hover::before,
 .pane-resizer.is-active::before {
-  background: color-mix(in oklch, var(--separator) 80%, transparent);
+  background: var(--app-border-strong);
 }
 
 .sidebar-scroll {
@@ -254,7 +395,7 @@ body {
   position: fixed;
   inset: 0;
   z-index: 9999;
-  background: rgb(0 0 0 / 0.12);
+  background: var(--app-overlay-scrim);
   display: grid;
   place-items: center;
   padding: 16px;
@@ -263,8 +404,9 @@ body {
 .collection-modal-card {
   width: min(320px, 100%);
   border-radius: 12px;
-  border: 1px solid color-mix(in oklch, var(--separator) 90%, transparent);
-  background: var(--surface);
+  border: 1px solid var(--app-border-strong);
+  background: var(--overlay);
+  box-shadow: var(--overlay-shadow);
   padding: 10px;
   display: flex;
   flex-direction: column;
@@ -280,9 +422,9 @@ body {
 .collection-create-input {
   width: 100%;
   min-height: 32px;
-  border: 1px solid color-mix(in oklch, var(--separator) 90%, transparent);
+  border: 1px solid var(--app-border);
   border-radius: 8px;
-  background: color-mix(in oklch, var(--default) 42%, transparent);
+  background: var(--app-input);
   color: var(--foreground);
   padding: 0 10px;
   font-size: 12px;
@@ -304,7 +446,7 @@ body {
   min-height: 28px;
   border: 0;
   border-radius: 8px;
-  background: color-mix(in oklch, var(--default) 58%, transparent);
+  background: var(--app-input-strong);
   color: var(--muted);
   display: inline-flex;
   align-items: center;
@@ -315,12 +457,12 @@ body {
 
 .collection-icon-option:hover,
 .collection-icon-option.active {
-  background: color-mix(in oklch, var(--accent) 24%, var(--default));
+  background: var(--app-selected-soft);
   color: var(--foreground);
 }
 
 .collection-icon-option.active {
-  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--accent) 42%, var(--separator));
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--accent) 38%, var(--app-border));
 }
 
 .collection-create-btn {
@@ -328,8 +470,8 @@ body {
   min-height: 32px;
   border: 0;
   border-radius: 9px;
-  background: var(--primary);
-  color: var(--primary-foreground);
+  background: var(--accent);
+  color: var(--accent-foreground);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -361,11 +503,11 @@ body {
 }
 
 .nav-row:hover {
-  background: color-mix(in oklch, var(--default) 65%, transparent);
+  background: var(--app-hover);
 }
 
 .nav-row.active {
-  background: var(--default);
+  background: var(--app-selected);
 }
 
 .nav-row.ghost {
@@ -440,11 +582,15 @@ body {
   border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
-  background: color-mix(in oklch, var(--default) 88%, transparent);
+  background: var(--app-input-strong);
   color: var(--foreground);
 }
 
 .nav-row.active .nav-count {
+  background: var(--app-selected-soft);
+}
+
+[data-theme="light"] .nav-row.active .nav-count {
   background: color-mix(in oklch, var(--accent) 14%, var(--default));
 }
 
@@ -462,14 +608,36 @@ body {
   top: 0;
   z-index: 6;
   padding: 0 0 12px;
-  background: var(--background);
+  background: transparent;
+  backdrop-filter: blur(16px) saturate(120%);
+  -webkit-backdrop-filter: blur(16px) saturate(120%);
+}
+
+.skill-list-header::before {
+  content: "";
+  position: absolute;
+  inset: -12px -12px 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in oklch, var(--background) 94%, var(--surface) 6%) 0%,
+      color-mix(in oklch, var(--background) 82%, transparent) 72%,
+      transparent 100%
+    );
+}
+
+[data-theme="dark"] .skill-list-header::before {
+  background: transparent;
 }
 
 .mail-search-field {
   min-height: 42px;
   border-radius: 14px;
-  border: 0;
-  background: var(--surface);
+  border: 1px solid var(--app-border);
+  background: var(--app-panel);
+  box-shadow: var(--surface-shadow);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -518,7 +686,7 @@ body {
 }
 
 .mail-search-field button:hover {
-  background: color-mix(in oklch, var(--default) 55%, transparent);
+  background: var(--app-hover);
   color: var(--foreground);
 }
 
@@ -573,6 +741,11 @@ body {
   opacity: 0.94;
 }
 
+[data-theme="dark"] .skills-empty-image {
+  opacity: 0.98;
+  filter: drop-shadow(0 18px 32px rgb(2 8 20 / 0.18));
+}
+
 .skills-empty-title {
   margin: 0;
   font-size: 14px;
@@ -599,11 +772,17 @@ body {
 }
 
 .skill-row:hover {
-  background: color-mix(in oklch, var(--default) 45%, transparent);
+  background: var(--app-hover);
 }
 
 .skill-row.active {
   background: var(--surface);
+  box-shadow: var(--surface-shadow);
+}
+
+[data-theme="dark"] .skill-row.active {
+  background: var(--app-selected);
+  box-shadow: inset 0 0 0 1px var(--app-border);
 }
 
 .tool-badge {
@@ -725,8 +904,9 @@ body {
   display: flex;
   flex-direction: column;
   border-radius: 16px;
-  border: 1px solid color-mix(in oklch, var(--separator) 88%, transparent);
-  background: var(--surface);
+  border: 1px solid var(--app-border);
+  background: var(--app-panel);
+  box-shadow: var(--surface-shadow);
   overflow: hidden;
 }
 
@@ -751,7 +931,7 @@ body {
   gap: 4px;
   padding: 3px;
   border-radius: 999px;
-  background: color-mix(in oklch, var(--default) 84%, transparent);
+  background: var(--app-toolbar-pill);
 }
 
 .view-toggle-btn {
@@ -774,7 +954,7 @@ body {
 
 .view-toggle-btn.is-active {
   color: var(--foreground) !important;
-  background: var(--surface);
+  background: var(--app-panel-soft);
 }
 
 .toolbar-actions .button {
@@ -788,12 +968,12 @@ body {
 }
 
 .toolbar-actions .button:hover {
-  background: color-mix(in oklch, var(--default) 82%, var(--surface));
+  background: var(--app-hover-strong);
   color: var(--foreground) !important;
 }
 
 .toolbar-actions .button.is-active {
-  background: color-mix(in oklch, var(--default) 82%, var(--surface));
+  background: var(--app-hover-strong);
   color: var(--foreground) !important;
 }
 
@@ -808,8 +988,9 @@ body {
   z-index: 80;
   width: 220px;
   border-radius: 12px;
-  border: 1px solid color-mix(in oklch, var(--separator) 90%, transparent);
-  background: var(--surface);
+  border: 1px solid var(--app-border-strong);
+  background: var(--overlay);
+  box-shadow: var(--overlay-shadow);
   padding: 6px;
   display: flex;
   flex-direction: column;
@@ -833,7 +1014,7 @@ body {
 
 .toolbar-collection-item:hover,
 .toolbar-collection-item.active {
-  background: color-mix(in oklch, var(--default) 62%, transparent);
+  background: var(--app-hover);
 }
 
 .toolbar-collection-item-icon {
@@ -995,7 +1176,7 @@ body {
 
 .markdown-scroll :not(pre) > code {
   border-radius: 6px;
-  background: color-mix(in oklch, var(--default) 75%, transparent);
+  background: var(--app-code);
   padding: 1px 6px;
   font-family: ui-monospace, Menlo, "SF Mono", monospace;
   font-size: 12px;
@@ -1004,7 +1185,8 @@ body {
 .markdown-scroll pre {
   margin: 0.9em 0;
   border-radius: 10px;
-  border: 1px solid color-mix(in oklch, var(--separator) 85%, transparent);
+  border: 1px solid var(--app-border);
+  background: var(--app-panel-soft);
   overflow: auto;
 }
 
@@ -1023,14 +1205,14 @@ body {
 
 .markdown-scroll th,
 .markdown-scroll td {
-  border: 1px solid color-mix(in oklch, var(--separator) 85%, transparent);
+  border: 1px solid var(--app-border);
   padding: 8px 10px;
   text-align: left;
   font-size: 13px;
 }
 
 .markdown-scroll th {
-  background: color-mix(in oklch, var(--default) 82%, transparent);
+  background: var(--app-panel-soft);
 }
 
 .markdown-scroll hr {
@@ -1092,10 +1274,12 @@ body {
 .skill-context-menu {
   position: fixed;
   z-index: 120;
-  min-width: 220px;
+  width: max-content;
+  max-width: calc(100vw - 16px);
   border-radius: 12px;
-  border: 1px solid color-mix(in oklch, var(--separator) 92%, transparent);
-  background: var(--surface);
+  border: 1px solid var(--app-border-strong);
+  background: var(--overlay);
+  box-shadow: var(--overlay-shadow);
   padding: 6px;
   display: flex;
   flex-direction: column;
@@ -1118,10 +1302,11 @@ body {
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
+  white-space: nowrap;
 }
 
 .skill-context-item:hover {
-  background: color-mix(in oklch, var(--default) 60%, transparent);
+  background: var(--app-hover);
 }
 
 .skill-context-item svg {
@@ -1142,7 +1327,7 @@ body {
   position: fixed;
   inset: 0;
   z-index: 140;
-  background: rgb(0 0 0 / 0.22);
+  background: var(--app-overlay-scrim-strong);
   display: grid;
   place-items: center;
   padding: 16px;
@@ -1151,8 +1336,9 @@ body {
 .confirm-card {
   width: min(300px, 100%);
   border-radius: 14px;
-  border: 1px solid color-mix(in oklch, var(--separator) 92%, transparent);
-  background: var(--surface);
+  border: 1px solid var(--app-border-strong);
+  background: var(--overlay);
+  box-shadow: var(--overlay-shadow);
   padding: 16px;
 }
 
@@ -1182,8 +1368,8 @@ body {
   width: 100%;
   min-height: 34px;
   border-radius: 9px;
-  border: 1px solid color-mix(in oklch, var(--separator) 90%, transparent);
-  background: color-mix(in oklch, var(--default) 46%, transparent);
+  border: 1px solid var(--app-border);
+  background: var(--app-input);
   color: var(--foreground);
   padding: 0 10px;
   font-size: 13px;
@@ -1210,21 +1396,21 @@ body {
 }
 
 .confirm-btn.ghost {
-  background: color-mix(in oklch, var(--default) 75%, transparent);
+  background: var(--app-input-strong);
   color: var(--foreground);
 }
 
 .confirm-btn.ghost:hover {
-  background: color-mix(in oklch, var(--default) 88%, transparent);
+  background: var(--app-hover-strong);
 }
 
 .confirm-btn.primary {
-  background: var(--primary);
-  color: var(--primary-foreground);
+  background: var(--accent);
+  color: var(--accent-foreground);
 }
 
 .confirm-btn.primary:hover {
-  background: var(--color-primary-hover);
+  background: var(--color-accent-hover);
 }
 
 .confirm-btn.danger {
