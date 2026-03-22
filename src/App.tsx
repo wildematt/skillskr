@@ -114,6 +114,12 @@ type CollectionRenameState = {
   name: string;
 };
 
+type PersistedAppState = {
+  favorites: string[];
+  collections: CollectionItem[];
+  skillCollections: Record<string, string>;
+};
+
 const FAVORITES_KEY = "skillskr.favorites.v1";
 const COLLECTIONS_KEY = "skillskr.collections.v1";
 const SKILL_COLLECTIONS_KEY = "skillskr.skillCollections.v1";
@@ -309,6 +315,18 @@ function loadPaneWidth(storageKey: string, fallback: number): number {
   }
 }
 
+function loadLocalAppState(): PersistedAppState {
+  return {
+    favorites: loadFavorites(),
+    collections: loadCollections(),
+    skillCollections: loadSkillCollections(),
+  };
+}
+
+function hasPersistedAppState(state: PersistedAppState): boolean {
+  return state.favorites.length > 0 || state.collections.length > 0 || Object.keys(state.skillCollections).length > 0;
+}
+
 function stripFrontMatterForPreview(content: string): string {
   const frontMatterPattern = /^\uFEFF?(?:\s*\r?\n)*---\r?\n[\s\S]*?\r?\n---(?:\r?\n)?/;
   return content.replace(frontMatterPattern, "");
@@ -316,6 +334,7 @@ function stripFrontMatterForPreview(content: string): string {
 
 function App() {
   const appWindow = getCurrentWindow();
+  const initialAppStateRef = useRef<PersistedAppState>(loadLocalAppState());
   const workspaceRef = useRef<HTMLElement | null>(null);
   const skillContextMenuRef = useRef<HTMLDivElement | null>(null);
   const newSkillActionsRef = useRef<HTMLDivElement | null>(null);
@@ -324,9 +343,9 @@ function App() {
   const skillRowRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const [skills, setSkills] = useState<SkillSummary[]>([]);
   const [sources, setSources] = useState<SkillSourceSummary[]>([]);
-  const [favorites, setFavorites] = useState<string[]>(() => loadFavorites());
-  const [collections, setCollections] = useState<CollectionItem[]>(() => loadCollections());
-  const [skillCollections, setSkillCollections] = useState<Record<string, string>>(() => loadSkillCollections());
+  const [favorites, setFavorites] = useState<string[]>(() => initialAppStateRef.current.favorites);
+  const [collections, setCollections] = useState<CollectionItem[]>(() => initialAppStateRef.current.collections);
+  const [skillCollections, setSkillCollections] = useState<Record<string, string>>(() => initialAppStateRef.current.skillCollections);
   const [selectedPath, setSelectedPath] = useState("");
   const [search, setSearch] = useState("");
   const [activeView, setActiveView] = useState<"preview" | "edit">("preview");
@@ -353,6 +372,8 @@ function App() {
   const [collectionRename, setCollectionRename] = useState<CollectionRenameState | null>(null);
   const [collectionDeleteId, setCollectionDeleteId] = useState<string | null>(null);
   const [detailCollectionPickerOpen, setDetailCollectionPickerOpen] = useState(false);
+  const [appStateReady, setAppStateReady] = useState(false);
+  const [skillsLoadedOnce, setSkillsLoadedOnce] = useState(false);
 
   const selectedSkill = useMemo(
     () => skills.find((skill) => skill.path === selectedPath),
@@ -541,6 +562,16 @@ function App() {
   }, [favorites]);
 
   useEffect(() => {
+    if (!appStateReady) {
+      return;
+    }
+    const state: PersistedAppState = { favorites, collections, skillCollections };
+    void invoke("save_app_state", { state }).catch((error) => {
+      console.error("Failed to persist app state", error);
+    });
+  }, [appStateReady, collections, favorites, skillCollections]);
+
+  useEffect(() => {
     localStorage.setItem(COLLECTIONS_KEY, JSON.stringify(collections));
   }, [collections]);
 
@@ -557,6 +588,10 @@ function App() {
   }, [middlePaneWidth]);
 
   useEffect(() => {
+    if (!skillsLoadedOnce) {
+      return;
+    }
+
     setSkillCollections((prev) => {
       const validPaths = new Set(skills.map((skill) => skill.path));
       const validCollectionIds = new Set(collections.map((collection) => collection.id));
@@ -568,7 +603,7 @@ function App() {
       }
       return Object.fromEntries(nextEntries);
     });
-  }, [collections, skills]);
+  }, [collections, skills, skillsLoadedOnce]);
 
   useEffect(() => {
     if (!sidebarKey.startsWith("collection:")) {
@@ -629,6 +664,7 @@ function App() {
       setStatusText(`Load failed: ${String(error)}`);
     } finally {
       setLoadingSkills(false);
+      setSkillsLoadedOnce(true);
     }
   }
 
@@ -973,7 +1009,37 @@ function App() {
   }
 
   useEffect(() => {
+    let cancelled = false;
+
+    async function syncPersistedAppState() {
+      const localState = initialAppStateRef.current;
+      try {
+        const persistedState = await invoke<PersistedAppState>("load_app_state");
+        if (cancelled) {
+          return;
+        }
+
+        if (hasPersistedAppState(persistedState)) {
+          setFavorites(persistedState.favorites);
+          setCollections(persistedState.collections);
+          setSkillCollections(persistedState.skillCollections);
+        } else if (hasPersistedAppState(localState)) {
+          await invoke("save_app_state", { state: localState });
+        }
+      } catch (error) {
+        console.error("Failed to load persisted app state", error);
+      } finally {
+        if (!cancelled) {
+          setAppStateReady(true);
+        }
+      }
+    }
+
+    void syncPersistedAppState();
     loadSkills();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

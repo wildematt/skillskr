@@ -1,10 +1,11 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::UNIX_EPOCH;
+use tauri::{Manager, PhysicalPosition, PhysicalSize, Position, Size, Window, WindowEvent};
 use walkdir::WalkDir;
 
 #[derive(Debug, Clone)]
@@ -58,6 +59,133 @@ struct UpdateResult {
     updated: bool,
     message: String,
     output: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedWindowState {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    maximized: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedCollectionItem {
+    id: String,
+    name: String,
+    icon: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct PersistedAppState {
+    favorites: Vec<String>,
+    collections: Vec<PersistedCollectionItem>,
+    skill_collections: HashMap<String, String>,
+}
+
+fn window_state_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let config_dir = app.path().app_config_dir().ok()?;
+    Some(config_dir.join("window-state.json"))
+}
+
+fn app_state_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let config_dir = app.path().app_config_dir().ok()?;
+    Some(config_dir.join("user-state.json"))
+}
+
+fn read_window_state(path: &Path) -> Option<PersistedWindowState> {
+    let raw = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+fn write_window_state(path: &Path, state: &PersistedWindowState) {
+    let Some(parent) = path.parent() else {
+        return;
+    };
+
+    if fs::create_dir_all(parent).is_err() {
+        return;
+    }
+
+    if let Ok(raw) = serde_json::to_string(state) {
+        let _ = fs::write(path, raw);
+    }
+}
+
+fn read_app_state(path: &Path) -> Option<PersistedAppState> {
+    let raw = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+fn write_app_state(path: &Path, state: &PersistedAppState) -> Result<(), String> {
+    let Some(parent) = path.parent() else {
+        return Err("invalid app state path".to_string());
+    };
+
+    fs::create_dir_all(parent)
+        .map_err(|err| format!("failed to create app state directory {}: {}", parent.to_string_lossy(), err))?;
+
+    let raw = serde_json::to_string(state).map_err(|err| format!("failed to serialize app state: {}", err))?;
+    fs::write(path, raw).map_err(|err| format!("failed to write app state {}: {}", path.to_string_lossy(), err))
+}
+
+fn snapshot_window_state(window: &Window) -> Option<PersistedWindowState> {
+    let state_path = window_state_path(&window.app_handle())?;
+    let is_maximized = window.is_maximized().ok().unwrap_or(false);
+
+    if is_maximized {
+        let mut previous_state = read_window_state(&state_path).unwrap_or(PersistedWindowState {
+            x: 0,
+            y: 0,
+            width: 1040,
+            height: 680,
+            maximized: true,
+        });
+        previous_state.maximized = true;
+        return Some(previous_state);
+    }
+
+    let position = window.outer_position().ok()?;
+    let size = window.outer_size().ok()?;
+
+    Some(PersistedWindowState {
+        x: position.x,
+        y: position.y,
+        width: size.width,
+        height: size.height,
+        maximized: false,
+    })
+}
+
+fn persist_window_state(window: &Window) {
+    let Some(state_path) = window_state_path(&window.app_handle()) else {
+        return;
+    };
+    let Some(state) = snapshot_window_state(window) else {
+        return;
+    };
+
+    write_window_state(&state_path, &state);
+}
+
+fn restore_window_state(window: &Window) {
+    let Some(state_path) = window_state_path(&window.app_handle()) else {
+        return;
+    };
+    let Some(state) = read_window_state(&state_path) else {
+        return;
+    };
+
+    let _ = window.set_size(Size::Physical(PhysicalSize::new(state.width, state.height)));
+    let _ = window.set_position(Position::Physical(PhysicalPosition::new(state.x, state.y)));
+
+    if state.maximized {
+        let _ = window.maximize();
+    }
 }
 
 fn build_source_defs() -> Vec<SkillSourceDef> {
@@ -302,6 +430,24 @@ fn update_repo(repo_root: &Path, target: &str) -> Result<UpdateResult, String> {
 }
 
 #[tauri::command]
+fn load_app_state(app: tauri::AppHandle) -> Result<PersistedAppState, String> {
+    let Some(path) = app_state_path(&app) else {
+        return Ok(PersistedAppState::default());
+    };
+
+    Ok(read_app_state(&path).unwrap_or_default())
+}
+
+#[tauri::command]
+fn save_app_state(app: tauri::AppHandle, state: PersistedAppState) -> Result<(), String> {
+    let Some(path) = app_state_path(&app) else {
+        return Err("failed to resolve app state path".to_string());
+    };
+
+    write_app_state(&path, &state)
+}
+
+#[tauri::command]
 fn list_skills() -> Result<ListSkillsResponse, String> {
     let source_defs = build_source_defs();
     let mut all_skills = vec![];
@@ -527,8 +673,22 @@ fn update_all_skills() -> Result<Vec<UpdateResult>, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                restore_window_state(&window.as_ref().window());
+            }
+            Ok(())
+        })
+        .on_window_event(|window, event| match event {
+            WindowEvent::Moved(_) | WindowEvent::Resized(_) | WindowEvent::CloseRequested { .. } => {
+                persist_window_state(window);
+            }
+            _ => {}
+        })
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
+            load_app_state,
+            save_app_state,
             list_skills,
             read_skill,
             save_skill,
