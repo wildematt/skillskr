@@ -2,7 +2,7 @@
 
 [中文说明](./README.zh-CN.md)
 
-SkillSkr is a desktop app for browsing, managing, editing, and organizing AI agent skills across multiple local sources (Codex, Claude, Cursor, Windsurf, Continue, Agents, and project-local skill folders).
+SkillSkr is a desktop app for browsing, managing, editing, and organizing AI agent skills across multiple local sources (Codex, Claude, Cursor, Windsurf, Agents, and project-local skill folders).
 
 Built with Tauri + React, it provides a fast native shell with modern UI, markdown editing/preview, favorites, collections, and skill-level file operations.
 
