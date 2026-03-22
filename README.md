@@ -1,11 +1,12 @@
 <p align="center">
-  <img src="./public/skillskr-logo.png" alt="SkillSkr Logo" style="width: 25%;" />
+  <img src="./public/skillskr-logo.png" alt="SkillSkr Logo" style="width: 128px; height: 128px;" />
 </p>
 
 <h1 align="center">SkillSkr</h1>
 
 <p align="center">
   <a href="./README.zh-CN.md">中文说明</a>
+  | <a href="https://github.com/wildematt/skillskr/releases">Download</a>
 </p>
 
 ![SkillSkr UI](./public/ui.jpg)
