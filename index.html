@@ -4,6 +4,39 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      (() => {
+        const prefersDark =
+          typeof window !== "undefined" &&
+          typeof window.matchMedia === "function" &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches;
+        const theme = prefersDark ? "dark" : "light";
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.classList.add(theme);
+      })();
+    </script>
+    <style>
+      html,
+      body,
+      #root {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      html[data-theme="light"],
+      html[data-theme="light"] body {
+        background: #f4f4f5;
+        color: #1b1b1f;
+      }
+
+      html[data-theme="dark"],
+      html[data-theme="dark"] body {
+        background: #14161c;
+        color: #f3f4f6;
+      }
+    </style>
     <title>Tauri + React + Typescript</title>
   </head>
 
