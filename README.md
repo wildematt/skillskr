@@ -1,8 +1,12 @@
-![SkillSkr Logo](./public/skillskr-logo.png)
+<p align="center">
+  <img src="./public/skillskr-logo.png" alt="SkillSkr Logo" style="width: 25%;" />
+</p>
 
-# SkillSkr
+<h1 align="center">SkillSkr</h1>
 
-[中文说明](./README.zh-CN.md)
+<p align="center">
+  <a href="./README.zh-CN.md">中文说明</a>
+</p>
 
 ![SkillSkr UI](./public/ui.jpg)
 
