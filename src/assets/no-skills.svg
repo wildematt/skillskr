@@ -1,0 +1,22 @@
+<svg width="220" height="140" viewBox="0 0 220 140" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="30" y1="24" x2="190" y2="124" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#EEF2F7"/>
+      <stop offset="1" stop-color="#E3E8EF"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="146" y1="70" x2="170" y2="94" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9CA3AF"/>
+      <stop offset="1" stop-color="#6B7280"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="12" y="10" width="196" height="120" rx="24" fill="url(#bg)"/>
+  <rect x="42" y="38" width="108" height="10" rx="5" fill="#CED6E2"/>
+  <rect x="42" y="56" width="136" height="10" rx="5" fill="#D6DDE8"/>
+  <rect x="42" y="74" width="92" height="10" rx="5" fill="#DDE3EC"/>
+  <rect x="42" y="92" width="122" height="10" rx="5" fill="#E5EAF1"/>
+
+  <circle cx="158" cy="80" r="18" fill="#F3F4F6"/>
+  <circle cx="154" cy="76" r="8.5" stroke="url(#accent)" stroke-width="3"/>
+  <path d="M160.5 82.5L167 89" stroke="url(#accent)" stroke-width="3" stroke-linecap="round"/>
+</svg>

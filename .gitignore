@@ -1,0 +1,47 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies / Build outputs
+node_modules/
+dist/
+dist-ssr/
+coverage/
+*.tsbuildinfo
+
+# Tauri / Rust generated artifacts
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+*.local
+
+# Local skill source folders (personal environment)
+.codex/
+.claude/
+.agents/
+.cursor/
+.windsurf/
+.continue/
+
+# Editor / IDE files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS files
+.DS_Store
+Thumbs.db
