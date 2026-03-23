@@ -285,6 +285,59 @@ fn skill_name_from_path(skill_file: &Path) -> String {
         .unwrap_or_else(|| "Unnamed Skill".to_string())
 }
 
+fn path_matches_root(path: &Path, root: &Path) -> bool {
+    if path.starts_with(root) {
+        return true;
+    }
+
+    fs::canonicalize(root)
+        .map(|canonical_root| path.starts_with(canonical_root))
+        .unwrap_or(false)
+}
+
+fn classify_tool_for_skill_path(path: &Path, default_tool: &str) -> String {
+    let resolved = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+
+    if let Ok(cwd) = env::current_dir() {
+        let project_roots = [
+            ("Project .claude", cwd.join(".claude")),
+            ("Project .codex", cwd.join(".codex")),
+            ("Project .agents", cwd.join(".agents")),
+        ];
+        for (tool, prefix) in project_roots {
+            if path_matches_root(&resolved, &prefix) {
+                return tool.to_string();
+            }
+        }
+    }
+
+    if let Ok(codex_home) = env::var("CODEX_HOME") {
+        let codex_home_path = PathBuf::from(codex_home);
+        if path_matches_root(&resolved, &codex_home_path) {
+            return "Codex (CODEX_HOME)".to_string();
+        }
+    }
+
+    if let Ok(home) = env::var("HOME") {
+        let home_path = PathBuf::from(home);
+        let home_roots = [
+            ("Codex", home_path.join(".codex")),
+            ("Agents", home_path.join(".agents")),
+            ("Claude Code", home_path.join(".claude")),
+            ("Cursor", home_path.join(".cursor")),
+            ("Windsurf", home_path.join(".windsurf")),
+            ("Continue", home_path.join(".continue")),
+        ];
+        for (tool, prefix) in home_roots {
+            if path_matches_root(&resolved, &prefix) {
+                return tool.to_string();
+            }
+        }
+    }
+
+    default_tool.to_string()
+}
+
 fn collect_skills_from_source(
     source: &SkillSourceDef,
 ) -> Result<(Vec<SkillSummary>, SkillSourceSummary), String> {
@@ -305,7 +358,7 @@ fn collect_skills_from_source(
 
     let mut skills = vec![];
     for entry in WalkDir::new(root)
-        .follow_links(false)
+        .follow_links(true)
         .into_iter()
         .filter_map(Result::ok)
     {
@@ -343,14 +396,15 @@ fn collect_skills_from_source(
             .map(|d| d.as_secs());
 
         let path_string = path.to_string_lossy().to_string();
-        let id = format!("{}::{}", source.tool, relative_path);
+        let tool = classify_tool_for_skill_path(&path, source.tool);
+        let id = format!("{}::{}", tool, relative_path);
 
         skills.push(SkillSummary {
             id,
             name,
             description,
             version,
-            tool: source.tool.to_string(),
+            tool,
             path: path_string,
             relative_path,
             source_root: root_display.clone(),
@@ -702,4 +756,113 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TempDirGuard {
+        path: PathBuf,
+    }
+
+    impl TempDirGuard {
+        fn new(prefix: &str) -> Self {
+            let suffix = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time before unix epoch")
+                .as_nanos();
+            let path = env::temp_dir().join(format!("{}-{}-{}", prefix, std::process::id(), suffix));
+            fs::create_dir_all(&path).expect("failed to create temp dir");
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempDirGuard {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    #[cfg(unix)]
+    fn symlink_dir<P: AsRef<Path>, Q: AsRef<Path>>(original: P, link: Q) {
+        std::os::unix::fs::symlink(original, link).expect("failed to create symlink");
+    }
+
+    #[cfg(windows)]
+    fn symlink_dir<P: AsRef<Path>, Q: AsRef<Path>>(original: P, link: Q) {
+        std::os::windows::fs::symlink_dir(original, link).expect("failed to create symlink");
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        original: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &Path) -> Self {
+            let original = env::var(key).ok();
+            unsafe {
+                env::set_var(key, value);
+            }
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(value) = &self.original {
+                unsafe {
+                    env::set_var(self.key, value);
+                }
+            } else {
+                unsafe {
+                    env::remove_var(self.key);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn collect_skills_from_source_classifies_symlinked_skill_packs_by_real_path() {
+        let temp = TempDirGuard::new("skillskr-symlink-pack");
+        let home = temp.path().join("home");
+        let workspace = temp.path().join("workspace");
+        let root = home.join(".agents/skills");
+        let target_skill_dir = home.join(".codex/superpowers/skills/brainstorming");
+        let linked_pack = root.join("superpowers");
+
+        fs::create_dir_all(&target_skill_dir).expect("failed to create target skill dir");
+        fs::create_dir_all(&root).expect("failed to create root skills dir");
+        fs::create_dir_all(&workspace).expect("failed to create workspace dir");
+        fs::write(
+            target_skill_dir.join("SKILL.md"),
+            "---\nname: brainstorming\ndescription: linked skill pack test\n---\n",
+        )
+        .expect("failed to write skill");
+        symlink_dir(home.join(".codex/superpowers/skills"), &linked_pack);
+
+        let previous_dir = env::current_dir().expect("failed to read current dir");
+        let _home_guard = EnvVarGuard::set("HOME", &home);
+        env::set_current_dir(&workspace).expect("failed to set current dir");
+
+        let source = SkillSourceDef {
+            tool: "Agents",
+            root_path: root,
+        };
+
+        let (skills, summary) = collect_skills_from_source(&source).expect("failed to collect skills");
+        env::set_current_dir(previous_dir).expect("failed to restore current dir");
+
+        assert_eq!(summary.skill_count, 1);
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].name, "brainstorming");
+        assert_eq!(skills[0].tool, "Codex");
+        assert_eq!(skills[0].relative_path, "superpowers/brainstorming/SKILL.md");
+    }
 }
