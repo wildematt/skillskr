@@ -37,7 +37,7 @@ type DeriveSkillListHierarchyInput = {
   search: string;
 };
 
-type DeriveSkillListHierarchyResult = {
+export type DeriveSkillListHierarchyResult = {
   items: GroupedSkillItem[];
   visibleNavigableSkills: SkillSummaryLike[];
 };

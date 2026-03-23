@@ -660,7 +660,24 @@ fn delete_skill(path: String) -> Result<(), String> {
         ));
     }
     fs::remove_file(&target)
-        .map_err(|err| format!("failed to delete {}: {}", target.to_string_lossy(), err))
+        .map_err(|err| format!("failed to delete {}: {}", target.to_string_lossy(), err))?;
+
+    if let Some(parent) = target.parent() {
+        match fs::remove_dir(parent) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) if err.kind() == std::io::ErrorKind::DirectoryNotEmpty => {}
+            Err(err) => {
+                return Err(format!(
+                    "deleted skill file but failed to remove empty directory {}: {}",
+                    parent.to_string_lossy(),
+                    err
+                ))
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -761,7 +778,10 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    static PROCESS_STATE_LOCK: Mutex<()> = Mutex::new(());
 
     struct TempDirGuard {
         path: PathBuf,
@@ -830,6 +850,7 @@ mod tests {
 
     #[test]
     fn collect_skills_from_source_classifies_symlinked_skill_packs_by_real_path() {
+        let _process_state_guard = PROCESS_STATE_LOCK.lock().expect("failed to lock process state");
         let temp = TempDirGuard::new("skillskr-symlink-pack");
         let home = temp.path().join("home");
         let workspace = temp.path().join("workspace");
@@ -864,5 +885,25 @@ mod tests {
         assert_eq!(skills[0].name, "brainstorming");
         assert_eq!(skills[0].tool, "Codex");
         assert_eq!(skills[0].relative_path, "superpowers/brainstorming/SKILL.md");
+    }
+
+    #[test]
+    fn delete_skill_removes_empty_directory_so_name_can_be_reused() {
+        let _process_state_guard = PROCESS_STATE_LOCK.lock().expect("failed to lock process state");
+        let temp = TempDirGuard::new("skillskr-delete-recreate");
+        let workspace = temp.path().join("workspace");
+        fs::create_dir_all(&workspace).expect("failed to create workspace dir");
+
+        let previous_dir = env::current_dir().expect("failed to read current dir");
+        env::set_current_dir(&workspace).expect("failed to set current dir");
+
+        let created_path = create_skill("Sample Skill".to_string(), None).expect("failed to create skill");
+        delete_skill(created_path.clone()).expect("failed to delete skill");
+        let recreated_path = create_skill("Sample Skill".to_string(), None).expect("failed to recreate skill");
+
+        env::set_current_dir(previous_dir).expect("failed to restore current dir");
+
+        assert!(created_path.ends_with("/.codex/skills/sample-skill/SKILL.md"));
+        assert_eq!(recreated_path, created_path);
     }
 }

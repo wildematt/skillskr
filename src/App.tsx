@@ -1,77 +1,47 @@
-import { type ChangeEvent, type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Button, ScrollShadow, Spinner } from "@heroui/react";
-import { ClaudeCode, Cline, Codex, Cursor, GithubCopilot, Windsurf } from "@lobehub/icons";
-import noSkillsIllustration from "./assets/no-skills.svg";
-import noSkillsIllustrationDark from "./assets/no-skills-dark.svg";
+import { FolderOpen, IconContext, PencilSimple, Trash } from "@phosphor-icons/react";
+import { CollectionModal } from "./components/CollectionModal";
+import { ConfirmDialog } from "./components/ConfirmDialog";
+import { DetailPane } from "./components/DetailPane";
+import { LeftSidebar } from "./components/LeftSidebar";
+import { SkillListPane } from "./components/SkillListPane";
+import { SKILL_SITE_TABS } from "./appIcons";
+import { SkillContextMenu } from "./components/SkillContextMenu";
 import {
-  ArrowLeft,
-  ArrowRight,
-  ArrowsClockwise,
-  BugBeetle,
-  CaretRight,
-  Check,
-  Code,
-  Cpu,
-  Database,
-  Eye,
-  FolderOpen,
-  FolderSimple,
-  FolderSimpleStar,
-  GlobeHemisphereWest,
-  Hammer,
-  IconContext,
-  Plus,
-  PencilSimple,
-  RocketLaunch,
-  Sparkle,
-  SquaresFour,
-  Star,
-  TerminalWindow,
-  Trash,
-  Wrench,
-} from "@phosphor-icons/react";
-import MarkdownPreview from "@uiw/react-markdown-preview";
-import { deriveSkillListHierarchy, type GroupedSkillGroup } from "./skillListHierarchy";
-
-type SkillSummary = {
-  id: string;
-  name: string;
-  description: string;
-  version?: string;
-  tool: string;
-  path: string;
-  relativePath: string;
-  sourceRoot: string;
-  modifiedUnix?: number;
-};
-
-type SkillSourceSummary = {
-  tool: string;
-  rootPath: string;
-  exists: boolean;
-  skillCount: number;
-};
-
-type ListSkillsResponse = {
-  skills: SkillSummary[];
-  sources: SkillSourceSummary[];
-};
-
-type SkillDetail = {
-  path: string;
-  content: string;
-};
-
-type UpdateResult = {
-  target: string;
-  repoRoot?: string;
-  updated: boolean;
-  message: string;
-  output: string;
-};
+  COLLECTIONS_KEY,
+  createCollectionId,
+  FAVORITES_KEY,
+  hasPersistedAppState,
+  LEFT_PANE_KEY,
+  loadLocalAppState,
+  loadPaneWidth,
+  loadSkillGroupCollapse,
+  MIDDLE_PANE_KEY,
+  SKILL_COLLECTIONS_KEY,
+  SKILL_GROUP_COLLAPSE_KEY,
+} from "./appStorage";
+import type {
+  AppTheme,
+  CollectionIconKey,
+  CollectionItem,
+  ListSkillsResponse,
+  PersistedAppState,
+  SkillDetail,
+  SkillSourceSummary,
+  SkillSummary,
+  SkillSiteTabKey,
+  UpdateResult,
+} from "./appTypes";
+import { clampFloatingMenuPosition, formatBytes, formatModified, resolvePreferredTheme, stripFrontMatterForPreview } from "./appUtils";
+import { deriveSkillListHierarchy } from "./skillListHierarchy";
+import { resolveSelectedPathAfterRead } from "./readSkillSelection";
+import { createSkillListScrollShadowKey } from "./scrollShadowKeys";
+import { shouldAutoScrollSelectedSkill } from "./selectedSkillAutoScroll";
+import { shouldPersistSidebarSelection } from "./sidebarSelectionMemory";
+import { toggleFavoritePath } from "./toggleFavoritePath";
 
 type SkillContextMenuState = {
   path: string;
@@ -86,26 +56,6 @@ type DeleteConfirmState = {
   step: 1 | 2;
 };
 
-type CollectionIconKey =
-  | "folder"
-  | "star"
-  | "code"
-  | "terminal"
-  | "database"
-  | "wrench"
-  | "rocket"
-  | "sparkle"
-  | "cpu"
-  | "globe"
-  | "bug"
-  | "hammer";
-
-type CollectionItem = {
-  id: string;
-  name: string;
-  icon: CollectionIconKey;
-};
-
 type CollectionContextMenuState = {
   id: string;
   x: number;
@@ -117,293 +67,13 @@ type CollectionRenameState = {
   name: string;
 };
 
-type PersistedAppState = {
-  favorites: string[];
-  collections: CollectionItem[];
-  skillCollections: Record<string, string>;
-};
-
-type AppTheme = "light" | "dark";
-
-type SkillSiteTabKey = "openclaw" | "skills";
-
-type SkillSite = {
-  label: string;
-  url: string;
-};
-
-type SkillSiteTab = {
-  key: SkillSiteTabKey;
-  label: string;
-  sites: SkillSite[];
-};
-
-const FAVORITES_KEY = "skillskr.favorites.v1";
-const COLLECTIONS_KEY = "skillskr.collections.v1";
-const SKILL_COLLECTIONS_KEY = "skillskr.skillCollections.v1";
-const SKILL_GROUP_COLLAPSE_KEY = "skillskr.skillGroupCollapse.v1";
 const TOOL_ORDER = ["Claude Code", "Cursor", "Windsurf", "Codex", "Agents", "Continue"];
-const LEFT_PANE_KEY = "skillskr.leftPaneWidth.v1";
-const MIDDLE_PANE_KEY = "skillskr.middlePaneWidth.v1";
 const LEFT_SPLITTER_WIDTH = 8;
 const LEFT_MIN = 180;
 const LEFT_MAX = 420;
 const MIDDLE_MIN = 260;
 const MIDDLE_MAX = 520;
 const DETAIL_MIN = 360;
-const SKILL_SITE_TABS: SkillSiteTab[] = [
-  {
-    key: "skills",
-    label: "Skills",
-    sites: [
-      { label: "ComposioHQ/awesome-claude-skills", url: "https://github.com/ComposioHQ/awesome-claude-skills" },
-      { label: "JimLiu/baoyu-skills", url: "https://github.com/JimLiu/baoyu-skills" },
-      { label: "anthropics/skills", url: "https://github.com/anthropics/skills" },
-      { label: "stellarlinkco/myclaude", url: "https://github.com/stellarlinkco/myclaude" },
-      { label: "pbakaus/impeccable", url: "https://github.com/pbakaus/impeccable" },
-      { label: "vercel-labs/skills", url: "https://github.com/vercel-labs/skills" },
-    ],
-  },
-  {
-    key: "openclaw",
-    label: "OpenClaw",
-    sites: [
-      { label: "SkillHub", url: "https://skillhub.tencent.com/" },
-      { label: "ClawHub", url: "https://clawhub.ai/" },
-    ],
-  },
-];
-
-const COLLECTION_ICON_OPTIONS: Array<{ key: CollectionIconKey; label: string }> = [
-  { key: "folder", label: "Folder" },
-  { key: "star", label: "Star" },
-  { key: "code", label: "Code" },
-  { key: "terminal", label: "Terminal" },
-  { key: "database", label: "Database" },
-  { key: "wrench", label: "Wrench" },
-  { key: "rocket", label: "Rocket" },
-  { key: "sparkle", label: "Sparkle" },
-  { key: "cpu", label: "CPU" },
-  { key: "globe", label: "Globe" },
-  { key: "bug", label: "Bug" },
-  { key: "hammer", label: "Hammer" },
-];
-const TOOL_ICON_GRADIENTS: Record<string, string> = {
-  claude: "linear-gradient(135deg, #f6b084 0%, #d97757 100%)",
-  cursor: "linear-gradient(135deg, #67e8f9 0%, #3b82f6 100%)",
-  codex: "linear-gradient(180deg, #b1a7ff 0%, #7a9dff 52%, #3941ff 100%)",
-  windsurf: "linear-gradient(135deg, #5eead4 0%, #0ea5e9 56%, #2563eb 100%)",
-  continue: "linear-gradient(135deg, #86efac 0%, #22c55e 48%, #0284c7 100%)",
-  agents: "linear-gradient(135deg, #f59e0b 0%, #ef4444 52%, #8b5cf6 100%)",
-  generic: "linear-gradient(135deg, #94a3b8 0%, #64748b 100%)",
-};
-
-function formatBytes(content: string): string {
-  const bytes = new Blob([content]).size;
-  if (bytes < 1024) {
-    return `${bytes} B`;
-  }
-  const kb = bytes / 1024;
-  if (kb < 1024) {
-    return `${kb.toFixed(1)} KB`;
-  }
-  return `${(kb / 1024).toFixed(1)} MB`;
-}
-
-function formatModified(unix?: number): string {
-  if (!unix) {
-    return "Unknown";
-  }
-  const date = new Date(unix * 1000);
-  return date.toLocaleString();
-}
-
-function resolveToolKey(tool: string): string {
-  const lower = tool.toLowerCase();
-  if (lower.includes("claude")) return "claude";
-  if (lower.includes("cursor")) return "cursor";
-  if (lower.includes("codex")) return "codex";
-  if (lower.includes("windsurf")) return "windsurf";
-  if (lower.includes("continue")) return "continue";
-  if (lower.includes("agent")) return "agents";
-  return "generic";
-}
-
-type ToolIconStyle = CSSProperties & { "--tool-gradient"?: string };
-
-function toolIconStyle(tool: string): ToolIconStyle {
-  const key = resolveToolKey(tool);
-  return { "--tool-gradient": TOOL_ICON_GRADIENTS[key] ?? TOOL_ICON_GRADIENTS.generic };
-}
-
-function renderToolIcon(tool: string): ReactNode {
-  const key = resolveToolKey(tool);
-  const size = 12;
-  if (key === "claude") return <ClaudeCode size={size} />;
-  if (key === "cursor") return <Cursor size={size} />;
-  if (key === "codex") return <Codex size={size} />;
-  if (key === "windsurf") return <Windsurf size={size} />;
-  if (key === "continue") return <GithubCopilot size={size} />;
-  if (key === "agents") return <Cline size={size} />;
-
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <path
-        fill="currentColor"
-        fillRule="evenodd"
-        d="M3.75 2.5a.75.75 0 0 0-.75.75v9.5c0 .414.336.75.75.75h8.5a.75.75 0 0 0 .75-.75v-9.5a.75.75 0 0 0-.75-.75zm-2.25.75A2.25 2.25 0 0 1 3.75 1h8.5a2.25 2.25 0 0 1 2.25 2.25v9.5A2.25 2.25 0 0 1 12.25 15h-8.5A2.25 2.25 0 0 1 1.5 12.75zm3 1.5a.75.75 0 0 1 .75-.75h5.5a.75.75 0 0 1 0 1.5h-5.5a.75.75 0 0 1-.75-.75m0 2.5a.75.75 0 0 1 .75-.75h3.5a.75.75 0 0 1 0 1.5h-3.5a.75.75 0 0 1-.75-.75m0 2.5a.75.75 0 0 1 .75-.75h5.5a.75.75 0 0 1 0 1.5h-5.5a.75.75 0 0 1-.75-.75"
-        clipRule="evenodd"
-      />
-    </svg>
-  );
-}
-
-function renderCollectionIcon(icon: CollectionIconKey, size = 16): ReactNode {
-  if (icon === "folder") return <FolderSimple size={size} />;
-  if (icon === "star") return <FolderSimpleStar size={size} />;
-  if (icon === "code") return <Code size={size} />;
-  if (icon === "terminal") return <TerminalWindow size={size} />;
-  if (icon === "database") return <Database size={size} />;
-  if (icon === "wrench") return <Wrench size={size} />;
-  if (icon === "rocket") return <RocketLaunch size={size} />;
-  if (icon === "sparkle") return <Sparkle size={size} />;
-  if (icon === "cpu") return <Cpu size={size} />;
-  if (icon === "globe") return <GlobeHemisphereWest size={size} />;
-  if (icon === "bug") return <BugBeetle size={size} />;
-  return <Hammer size={size} />;
-}
-
-function loadCollections(): CollectionItem[] {
-  try {
-    const raw = localStorage.getItem(COLLECTIONS_KEY);
-    if (!raw) {
-      return [];
-    }
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed
-      .filter((item) => item && typeof item.id === "string" && typeof item.name === "string")
-      .map((item) => ({
-        id: item.id as string,
-        name: (item.name as string).trim(),
-        icon: COLLECTION_ICON_OPTIONS.some((option) => option.key === item.icon)
-          ? (item.icon as CollectionIconKey)
-          : "folder",
-      }))
-      .filter((item) => item.name.length > 0);
-  } catch {
-    return [];
-  }
-}
-
-function loadSkillCollections(): Record<string, string> {
-  try {
-    const raw = localStorage.getItem(SKILL_COLLECTIONS_KEY);
-    if (!raw) {
-      return {};
-    }
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") {
-      return {};
-    }
-    return Object.entries(parsed).reduce<Record<string, string>>((acc, [path, collectionId]) => {
-      if (typeof path === "string" && typeof collectionId === "string") {
-        acc[path] = collectionId;
-      }
-      return acc;
-    }, {});
-  } catch {
-    return {};
-  }
-}
-
-function loadSkillGroupCollapse(): Record<string, boolean> {
-  try {
-    const raw = localStorage.getItem(SKILL_GROUP_COLLAPSE_KEY);
-    if (!raw) {
-      return {};
-    }
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") {
-      return {};
-    }
-    return Object.entries(parsed).reduce<Record<string, boolean>>((acc, [groupKey, isCollapsed]) => {
-      if (typeof groupKey === "string" && typeof isCollapsed === "boolean") {
-        acc[groupKey] = isCollapsed;
-      }
-      return acc;
-    }, {});
-  } catch {
-    return {};
-  }
-}
-
-function createCollectionId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `collection-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function loadFavorites(): string[] {
-  try {
-    const raw = localStorage.getItem(FAVORITES_KEY);
-    if (!raw) {
-      return [];
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function loadPaneWidth(storageKey: string, fallback: number): number {
-  try {
-    const raw = localStorage.getItem(storageKey);
-    if (!raw) {
-      return fallback;
-    }
-    const value = Number.parseInt(raw, 10);
-    return Number.isFinite(value) ? value : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function loadLocalAppState(): PersistedAppState {
-  return {
-    favorites: loadFavorites(),
-    collections: loadCollections(),
-    skillCollections: loadSkillCollections(),
-  };
-}
-
-function resolvePreferredTheme(): AppTheme {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-    return "light";
-  }
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
-
-function clampFloatingMenuPosition(x: number, y: number, width: number, height: number) {
-  const viewportPadding = 8;
-  return {
-    x: Math.min(Math.max(x, viewportPadding), Math.max(viewportPadding, window.innerWidth - width - viewportPadding)),
-    y: Math.min(Math.max(y, viewportPadding), Math.max(viewportPadding, window.innerHeight - height - viewportPadding)),
-  };
-}
-
-function hasPersistedAppState(state: PersistedAppState): boolean {
-  return state.favorites.length > 0 || state.collections.length > 0 || Object.keys(state.skillCollections).length > 0;
-}
-
-function stripFrontMatterForPreview(content: string): string {
-  const frontMatterPattern = /^\uFEFF?(?:\s*\r?\n)*---\r?\n[\s\S]*?\r?\n---(?:\r?\n)?/;
-  return content.replace(frontMatterPattern, "");
-}
 
 function App() {
   const appWindow = getCurrentWindow();
@@ -425,6 +95,10 @@ function App() {
   const [activeView, setActiveView] = useState<"preview" | "edit">("preview");
   const [sidebarKey, setSidebarKey] = useState("library:all");
   const lastScrolledSidebarKeyRef = useRef(sidebarKey);
+  const previousSidebarKeyRef = useRef(sidebarKey);
+  const skillListScrollPositionsRef = useRef<Record<string, number>>({});
+  const isRestoringSkillListScrollRef = useRef(false);
+  const pendingSidebarSelectionRestoreRef = useRef<{ sidebarKey: string; targetPath: string } | null>(null);
 
   const [loadingSkills, setLoadingSkills] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -451,6 +125,8 @@ function App() {
   const [detailCollectionPickerOpen, setDetailCollectionPickerOpen] = useState(false);
   const [appStateReady, setAppStateReady] = useState(false);
   const [skillsLoadedOnce, setSkillsLoadedOnce] = useState(false);
+  const lastAutoScrolledSelectedPathRef = useRef("");
+  const lastSelectedVisibilityRef = useRef(false);
 
   const selectedSkill = useMemo(
     () => skills.find((skill) => skill.path === selectedPath),
@@ -580,8 +256,13 @@ function App() {
   );
 
   const skillListScrollShadowKey = useMemo(
-    () => `${sidebarKey}-${search}-${loadingSkills ? "loading" : skillListHierarchy.items.length}`,
-    [loadingSkills, search, sidebarKey, skillListHierarchy.items.length],
+    () =>
+      createSkillListScrollShadowKey({
+        sidebarKey,
+        search,
+        loadingSkills,
+      }),
+    [loadingSkills, search, sidebarKey],
   );
 
   const activeSkillSiteTab = useMemo(
@@ -619,11 +300,16 @@ function App() {
   }
 
   useEffect(() => {
-    if (!selectedPath) {
-      return;
-    }
-    const existsInCurrentList = filteredSkills.some((skill) => skill.path === selectedPath);
-    if (!existsInCurrentList) {
+    const pendingSidebarSelectionRestore = pendingSidebarSelectionRestoreRef.current;
+    const visiblePaths = filteredSkills.map((skill) => skill.path);
+    if (
+      !shouldPersistSidebarSelection({
+        sidebarKey,
+        selectedPath,
+        visiblePaths,
+        pendingSidebarSelectionRestore,
+      })
+    ) {
       return;
     }
     setSelectionBySidebarKey((prev) => {
@@ -635,11 +321,93 @@ function App() {
   }, [filteredSkills, selectedPath, sidebarKey]);
 
   useEffect(() => {
+    const scrollElement = workspaceRef.current?.querySelector<HTMLElement>(".skill-list-pane .pane-scroll");
+    if (!scrollElement) {
+      isRestoringSkillListScrollRef.current = false;
+      previousSidebarKeyRef.current = sidebarKey;
+      return;
+    }
+
+    const previousSidebarKey = previousSidebarKeyRef.current;
+    previousSidebarKeyRef.current = sidebarKey;
+    if (previousSidebarKey === sidebarKey) {
+      isRestoringSkillListScrollRef.current = false;
+      return;
+    }
+
+    const savedScrollTop = skillListScrollPositionsRef.current[sidebarKey];
+    if (typeof savedScrollTop !== "number" || savedScrollTop <= 0) {
+      isRestoringSkillListScrollRef.current = false;
+      return;
+    }
+
+    isRestoringSkillListScrollRef.current = true;
+    let releaseFrameId = 0;
+    const restoreFrameId = window.requestAnimationFrame(() => {
+      scrollElement.scrollTop = savedScrollTop;
+      releaseFrameId = window.requestAnimationFrame(() => {
+        skillListScrollPositionsRef.current[sidebarKey] = scrollElement.scrollTop;
+        isRestoringSkillListScrollRef.current = false;
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(restoreFrameId);
+      window.cancelAnimationFrame(releaseFrameId);
+      isRestoringSkillListScrollRef.current = false;
+    };
+  }, [sidebarKey, skillListScrollShadowKey]);
+
+  useEffect(() => {
+    const scrollElement = workspaceRef.current?.querySelector<HTMLElement>(".skill-list-pane .pane-scroll");
+    if (!scrollElement) {
+      return;
+    }
+
+    const syncScrollTop = () => {
+      skillListScrollPositionsRef.current[sidebarKey] = scrollElement.scrollTop;
+    };
+
+    scrollElement.addEventListener("scroll", syncScrollTop, { passive: true });
+    return () => {
+      syncScrollTop();
+      scrollElement.removeEventListener("scroll", syncScrollTop);
+    };
+  }, [sidebarKey, skillListScrollShadowKey]);
+
+  useEffect(() => {
     if (!selectedPath) {
+      lastSelectedVisibilityRef.current = false;
       return;
     }
     const existsInCurrentList = visibleNavigableSkills.some((skill) => skill.path === selectedPath);
-    if (!existsInCurrentList) {
+    const pendingSidebarSelectionRestore = pendingSidebarSelectionRestoreRef.current;
+    const isRestoringScrollPosition =
+      isRestoringSkillListScrollRef.current ||
+      (pendingSidebarSelectionRestore?.sidebarKey === sidebarKey &&
+        pendingSidebarSelectionRestore.targetPath === selectedPath);
+    const shouldScroll = shouldAutoScrollSelectedSkill({
+      selectedPath,
+      previousSelectedPath: lastAutoScrolledSelectedPathRef.current,
+      sidebarKey,
+      lastScrolledSidebarKey: lastScrolledSidebarKeyRef.current,
+      wasSelectedVisible: lastSelectedVisibilityRef.current,
+      isSelectedVisible: existsInCurrentList,
+      isRestoringScrollPosition,
+    });
+    if (!shouldScroll) {
+      lastAutoScrolledSelectedPathRef.current = selectedPath;
+      lastSelectedVisibilityRef.current = existsInCurrentList;
+      if (isRestoringScrollPosition) {
+        lastScrolledSidebarKeyRef.current = sidebarKey;
+      }
+      if (
+        pendingSidebarSelectionRestore &&
+        pendingSidebarSelectionRestore.sidebarKey === sidebarKey &&
+        pendingSidebarSelectionRestore.targetPath === selectedPath
+      ) {
+        pendingSidebarSelectionRestoreRef.current = null;
+      }
       return;
     }
     const sidebarChanged = lastScrolledSidebarKeyRef.current !== sidebarKey;
@@ -648,6 +416,8 @@ function App() {
         block: sidebarChanged ? "center" : "nearest",
         inline: "nearest",
       });
+      lastAutoScrolledSelectedPathRef.current = selectedPath;
+      lastSelectedVisibilityRef.current = existsInCurrentList;
       lastScrolledSidebarKeyRef.current = sidebarKey;
     });
     return () => window.cancelAnimationFrame(frameId);
@@ -745,15 +515,17 @@ function App() {
     }
   }, [sidebarKey, toolCounts]);
 
-  async function readSkill(path: string) {
+  async function readSkill(path: string): Promise<boolean> {
     setLoadingDetail(true);
     try {
       const detail = await invoke<SkillDetail>("read_skill", { path });
       setOriginContent(detail.content);
       setEditContent(detail.content);
       setStatusText("Ready.");
+      return true;
     } catch (error) {
       setStatusText(`Read failed: ${String(error)}`);
+      return false;
     } finally {
       setLoadingDetail(false);
     }
@@ -772,8 +544,18 @@ function App() {
           : payload.skills[0]?.path ?? "";
 
       if (fallbackPath) {
-        setSelectedPath(fallbackPath);
-        await readSkill(fallbackPath);
+        const readSucceeded = await readSkill(fallbackPath);
+        const nextSelectedPath = resolveSelectedPathAfterRead({
+          currentSelectedPath: selectedPath,
+          requestedPath: fallbackPath,
+          readSucceeded,
+          clearOnFailure: true,
+        });
+        setSelectedPath(nextSelectedPath);
+        if (!readSucceeded) {
+          setOriginContent("");
+          setEditContent("");
+        }
       } else {
         setSelectedPath("");
         setOriginContent("");
@@ -788,14 +570,29 @@ function App() {
   }
 
   async function handleSelectSkill(path: string) {
-    if (path === selectedPath) {
+    await selectSkillPath(path);
+  }
+
+  async function selectSkillPath(path: string, options?: { optimisticSelection?: boolean }) {
+    const previousSelectedPath = selectedPath;
+    if (path === previousSelectedPath && !options?.optimisticSelection) {
       return;
     }
     if (isDirty && !window.confirm("Unsaved changes will be discarded. Continue?")) {
       return;
     }
-    setSelectedPath(path);
-    await readSkill(path);
+    if (options?.optimisticSelection && path !== previousSelectedPath) {
+      setSelectedPath(path);
+    }
+    const readSucceeded = await readSkill(path);
+    setSelectedPath(
+      resolveSelectedPathAfterRead({
+        currentSelectedPath: previousSelectedPath,
+        requestedPath: path,
+        readSucceeded,
+        clearOnFailure: false,
+      }),
+    );
   }
 
   async function handleSidebarKeyChange(nextSidebarKey: string) {
@@ -811,10 +608,13 @@ function App() {
     const rememberedPath = selectionBySidebarKey[nextSidebarKey];
     const rememberedSkill = rememberedPath ? nextFilteredSkills.find((skill) => skill.path === rememberedPath) : null;
     const targetSkill = rememberedSkill ?? nextFilteredSkills[0];
+    const savedScrollTop = skillListScrollPositionsRef.current[nextSidebarKey] ?? 0;
+    pendingSidebarSelectionRestoreRef.current =
+      savedScrollTop > 0 ? { sidebarKey: nextSidebarKey, targetPath: targetSkill.path } : null;
     if (targetSkill.path === selectedPath) {
       return;
     }
-    await handleSelectSkill(targetSkill.path);
+    await selectSkillPath(targetSkill.path, { optimisticSelection: true });
   }
 
   async function handleSave() {
@@ -1006,28 +806,11 @@ function App() {
     if (!selectedPath) {
       return;
     }
-    setFavorites((prev) =>
-      prev.includes(selectedPath) ? prev.filter((path) => path !== selectedPath) : [...prev, selectedPath],
-    );
+    setFavorites((prev) => toggleFavoritePath(prev, selectedPath));
   }
 
-  function handleSkillRowFavoriteClick(event: React.MouseEvent<HTMLSpanElement>, path: string) {
-    event.preventDefault();
-    event.stopPropagation();
-
-    const alreadyFavorite = favorites.includes(path);
-    setFavorites((prev) => (alreadyFavorite ? prev.filter((item) => item !== path) : [...prev, path]));
-  }
-
-  function handleSkillRowFavoriteKeyDown(event: React.KeyboardEvent<HTMLSpanElement>, path: string) {
-    if (event.key !== "Enter" && event.key !== " ") {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-
-    const alreadyFavorite = favorites.includes(path);
-    setFavorites((prev) => (alreadyFavorite ? prev.filter((item) => item !== path) : [...prev, path]));
+  function handleFavoritePathToggle(path: string) {
+    setFavorites((prev) => toggleFavoritePath(prev, path));
   }
 
   async function revealSelectedSkill() {
@@ -1472,108 +1255,6 @@ function App() {
     });
   }
 
-  function renderSelectableSkillRow(
-    skill: SkillSummary,
-    options?: {
-      rowClassName?: string;
-      showParentBadge?: boolean;
-      groupCount?: number;
-      groupExpanded?: boolean;
-      onToggleGroup?: (event: React.MouseEvent<HTMLButtonElement>) => void;
-    },
-  ) {
-    const isFavorite = favorites.includes(skill.path);
-    const isActive = selectedPath === skill.path;
-
-    return (
-      <div className={`skill-row ${isActive ? "active shadow-sm" : ""} ${options?.rowClassName ?? ""}`.trim()}>
-        <button
-          className="skill-row-main"
-          onClick={() => void handleSelectSkill(skill.path)}
-          onContextMenu={(event) => handleSkillContextMenu(event, skill)}
-          ref={(element) => {
-            skillRowRefs.current[skill.path] = element;
-          }}
-        >
-          <span className="tool-badge" aria-hidden="true">
-            <span className="tool-badge-icon" style={toolIconStyle(skill.tool)}>
-              {renderToolIcon(skill.tool)}
-            </span>
-          </span>
-          <span className="mail-main">
-            <span className="mail-name-row">
-              <span className="mail-name">{skill.name}</span>
-              {options?.showParentBadge ? <span className="skill-parent-chip">Parent</span> : null}
-            </span>
-          </span>
-        </button>
-        <div className="skill-row-side">
-          {typeof options?.groupCount === "number" ? <span className="skill-group-count">{options.groupCount}</span> : null}
-          <span
-            className={`mail-star ${isFavorite ? "on" : ""}`}
-            role="button"
-            tabIndex={0}
-            aria-label={isFavorite ? "Unfavorite skill" : "Favorite skill"}
-            onClick={(event) => handleSkillRowFavoriteClick(event, skill.path)}
-            onKeyDown={(event) => handleSkillRowFavoriteKeyDown(event, skill.path)}
-          >
-            <Star size={16} weight={isFavorite ? "fill" : "bold"} />
-          </span>
-          {options?.onToggleGroup ? (
-            <button
-              type="button"
-              className={`skill-group-toggle ${options.groupExpanded ? "is-expanded" : ""}`}
-              aria-label={options.groupExpanded ? "Collapse skill group" : "Expand skill group"}
-              aria-expanded={options.groupExpanded}
-              onClick={options.onToggleGroup}
-            >
-              <CaretRight size={14} />
-            </button>
-          ) : null}
-        </div>
-      </div>
-    );
-  }
-
-  function renderGroupHeader(group: GroupedSkillGroup) {
-    const tool = group.parentSkill?.tool ?? group.childSkills[0]?.tool ?? "generic";
-
-    return (
-      <div className="skill-row skill-row-group-only">
-        <button
-          type="button"
-          className="skill-row-main skill-row-group-main"
-          aria-label={group.isExpanded ? "Collapse skill group" : "Expand skill group"}
-          aria-expanded={group.isExpanded}
-          onClick={() => toggleSkillGroup(group.groupKey)}
-        >
-          <span className="tool-badge" aria-hidden="true">
-            <span className="tool-badge-icon" style={toolIconStyle(tool)}>
-              {renderToolIcon(tool)}
-            </span>
-          </span>
-          <span className="mail-main">
-            <span className="mail-name-row">
-              <span className="mail-name">{group.groupLabel}</span>
-            </span>
-          </span>
-        </button>
-        <div className="skill-row-side">
-          <span className="skill-group-count">{group.childCount}</span>
-          <button
-            type="button"
-            className={`skill-group-toggle ${group.isExpanded ? "is-expanded" : ""}`}
-            aria-label={group.isExpanded ? "Collapse skill group" : "Expand skill group"}
-            aria-expanded={group.isExpanded}
-            onClick={() => toggleSkillGroup(group.groupKey)}
-          >
-            <CaretRight size={14} />
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <IconContext.Provider value={{ weight: "bold", size: 16 }}>
       <main
@@ -1587,137 +1268,27 @@ function App() {
       >
         <div className="window-drag-region" data-tauri-drag-region onMouseDown={handleWindowDragStart} />
         <section className="workspace" ref={workspaceRef}>
-        <aside className="left-sidebar">
-          <ScrollShadow
-            key={sidebarScrollShadowKey}
-            className="sidebar-scroll"
-            hideScrollBar
-            orientation="vertical"
-            variant="fade"
-            size={40}
-            offset={10}
-          >
-            <div className="sidebar-section">
-              <h3 className="left-title">Library</h3>
-              <button
-                className={`nav-row ${sidebarKey === "library:all" ? "active" : ""}`}
-                onClick={() => void handleSidebarKeyChange("library:all")}
-              >
-                <span className="nav-main">
-                  <span className="nav-icon">
-                    <SquaresFour size={16} />
-                  </span>
-                  <span>All Skills</span>
-                </span>
-                <span className="nav-count">{skills.length}</span>
-              </button>
-              <button
-                className={`nav-row ${sidebarKey === "library:favorites" ? "active" : ""}`}
-                onClick={() => void handleSidebarKeyChange("library:favorites")}
-              >
-                <span className="nav-main">
-                  <span className="nav-icon">
-                    <Star size={16} />
-                  </span>
-                  <span>Favorites</span>
-                </span>
-                <span className="nav-count">{favorites.length}</span>
-              </button>
-            </div>
-
-            <div className="sidebar-section">
-              <h3 className="left-title section-gap">Tools</h3>
-              {visibleTools.map((tool) => (
-                <button
-                  key={tool}
-                  className={`nav-row ${sidebarKey === `tool:${tool}` ? "active" : ""}`}
-                  onClick={() => void handleSidebarKeyChange(`tool:${tool}`)}
-                >
-                  <span className="nav-main">
-                    <span className="nav-tool-icon" style={toolIconStyle(tool)}>
-                      {renderToolIcon(tool)}
-                    </span>
-                    <span>{tool}</span>
-                  </span>
-                  <span className="nav-count">{toolCounts.get(tool) ?? 0}</span>
-                </button>
-              ))}
-            </div>
-
-            <div className="sidebar-section">
-              <div className="left-section-heading section-gap">
-                <h3 className="left-title">Collections</h3>
-                <button
-                  className="collection-add-btn"
-                  aria-label="Create collection"
-                  onClick={() => setCollectionsPopupOpen(true)}
-                >
-                  <Plus size={14} />
-                </button>
-              </div>
-              {collections.map((collection) => (
-                <button
-                  key={collection.id}
-                  className={`nav-row ${sidebarKey === `collection:${collection.id}` ? "active" : ""}`}
-                  onClick={() => void handleSidebarKeyChange(`collection:${collection.id}`)}
-                  onContextMenu={(event) => handleCollectionContextMenu(event, collection)}
-                >
-                  <span className="nav-main">
-                    <span className="nav-icon">{renderCollectionIcon(collection.icon, 16)}</span>
-                    <span>{collection.name}</span>
-                  </span>
-                  <span className="nav-count">{collectionCounts.get(collection.id) ?? 0}</span>
-                </button>
-              ))}
-            </div>
-
-          </ScrollShadow>
-          <div className="left-bottom-actions" ref={newSkillActionsRef}>
-            {newSkillLinksOpen ? (
-              <div className="new-skill-links shadow-sm" aria-label="New skill websites">
-                <div className="new-skill-tabs" role="tablist" aria-label="Skill source groups">
-                  {SKILL_SITE_TABS.map((tab) => (
-                    <button
-                      key={tab.key}
-                      type="button"
-                      role="tab"
-                      aria-selected={newSkillTab === tab.key}
-                      className={`new-skill-tab-btn ${newSkillTab === tab.key ? "active" : ""}`}
-                      onClick={() => setNewSkillTab(tab.key)}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="new-skill-links-list" role="menu" aria-label={`${activeSkillSiteTab.label} skill websites`}>
-                  {activeSkillSiteTab.sites.map((site) => (
-                    <button
-                      key={site.url}
-                      type="button"
-                      className="new-skill-link-btn"
-                      role="menuitem"
-                      onClick={() => void handleOpenSkillSite(site.url)}
-                    >
-                      <span className="new-skill-link-label">{site.label}</span>
-                      <span className="new-skill-link-url">{site.url}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            <button className="left-action-btn" aria-label="Refresh" onClick={() => void handleRefreshSkills()}>
-              <ArrowsClockwise size={16} />
-            </button>
-            <button
-              className="left-action-btn"
-              aria-expanded={newSkillLinksOpen}
-              aria-label="New Skill"
-              onClick={handleToggleNewSkillLinks}
-            >
-              <Plus size={16} />
-            </button>
-          </div>
-        </aside>
+        <LeftSidebar
+          sidebarScrollShadowKey={sidebarScrollShadowKey}
+          sidebarKey={sidebarKey}
+          skillsCount={skills.length}
+          favoritesCount={favorites.length}
+          visibleTools={visibleTools}
+          toolCounts={toolCounts}
+          collections={collections}
+          collectionCounts={collectionCounts}
+          newSkillActionsRef={newSkillActionsRef}
+          newSkillLinksOpen={newSkillLinksOpen}
+          newSkillTab={newSkillTab}
+          activeSkillSiteTab={activeSkillSiteTab}
+          onSidebarKeyChange={(nextSidebarKey) => void handleSidebarKeyChange(nextSidebarKey)}
+          onOpenCollectionCreate={() => setCollectionsPopupOpen(true)}
+          onCollectionContextMenu={handleCollectionContextMenu}
+          onNewSkillTabChange={setNewSkillTab}
+          onOpenSkillSite={(url) => void handleOpenSkillSite(url)}
+          onRefreshSkills={() => void handleRefreshSkills()}
+          onToggleNewSkillLinks={handleToggleNewSkillLinks}
+        />
         <div
           className={`pane-resizer ${resizingPane === "left" ? "is-active" : ""}`}
           role="separator"
@@ -1726,438 +1297,161 @@ function App() {
           onMouseDown={(event) => handleResizeStart("left", event)}
         />
 
-        <section className="skill-list-pane">
-          <div className="skill-list-header">
-            <div className="mail-search-field shadow-sm">
-              <svg viewBox="0 0 16 16" aria-hidden="true">
-                <path
-                  fill="currentColor"
-                  fillRule="evenodd"
-                  d="M11.5 7a4.5 4.5 0 1 1-9 0a4.5 4.5 0 0 1 9 0m-.82 4.74a6 6 0 1 1 1.06-1.06l2.79 2.79a.75.75 0 1 1-1.06 1.06z"
-                  clipRule="evenodd"
-                />
-              </svg>
-              <input
-                type="text"
-                placeholder="Search..."
-                value={search}
-                onChange={(event) => {
-                  const target = event.target as HTMLInputElement | null;
-                  if (!target) return;
-                  setSearch(target.value);
-                }}
-                aria-label="Search skills"
-              />
-              {search ? (
-                <button aria-label="Clear search" onClick={() => setSearch("")}>
-                  <svg viewBox="0 0 16 16" aria-hidden="true">
-                    <path
-                      fill="currentColor"
-                      fillRule="evenodd"
-                      d="M3.47 3.47a.75.75 0 0 1 1.06 0L8 6.94l3.47-3.47a.75.75 0 1 1 1.06 1.06L9.06 8l3.47 3.47a.75.75 0 1 1-1.06 1.06L8 9.06l-3.47 3.47a.75.75 0 0 1-1.06-1.06L6.94 8 3.47 4.53a.75.75 0 0 1 0-1.06Z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                </button>
-              ) : null}
-            </div>
-          </div>
+        <SkillListPane
+          search={search}
+          loadingSkills={loadingSkills}
+          filteredSkills={filteredSkills}
+          skillListHierarchy={skillListHierarchy}
+          selectedPath={selectedPath}
+          favorites={favorites}
+          themeMode={themeMode}
+          scrollShadowKey={skillListScrollShadowKey}
+          onSearchChange={setSearch}
+          onClearSearch={() => setSearch("")}
+          onSelectSkill={(path) => void handleSelectSkill(path)}
+          onToggleFavorite={handleFavoritePathToggle}
+          onOpenSkillContextMenu={handleSkillContextMenu}
+          onToggleGroup={toggleSkillGroup}
+          registerSkillRow={(path, element) => {
+            skillRowRefs.current[path] = element;
+          }}
+        />
 
-          <ScrollShadow
-            key={skillListScrollShadowKey}
-            className="pane-scroll"
-            hideScrollBar
-            orientation="vertical"
-            variant="fade"
-            size={40}
-            offset={10}
-          >
-            {loadingSkills ? (
-              <div className="loading-wrap">
-                <Spinner />
-              </div>
-            ) : filteredSkills.length === 0 ? (
-              <div className="skills-empty" aria-live="polite">
-                <img
-                  src={themeMode === "dark" ? noSkillsIllustrationDark : noSkillsIllustration}
-                  alt="No skills"
-                  className="skills-empty-image"
-                />
-                <p className="skills-empty-title">No Skills</p>
-              </div>
-            ) : (
-              <div className="skill-list">
-                {skillListHierarchy.items.map((item) => {
-                  if (item.type === "skill") {
-                    return <div key={item.skill.path}>{renderSelectableSkillRow(item.skill)}</div>;
-                  }
-
-                  return (
-                    <div key={item.group.groupKey} className="skill-group">
-                      {item.group.parentSkill
-                        ? renderSelectableSkillRow(item.group.parentSkill, {
-                            rowClassName: "skill-row-parent",
-                            showParentBadge: true,
-                            groupCount: item.group.childCount,
-                            groupExpanded: item.group.isExpanded,
-                            onToggleGroup: (event) => {
-                              event.stopPropagation();
-                              toggleSkillGroup(item.group.groupKey);
-                            },
-                          })
-                        : renderGroupHeader(item.group)}
-                      {item.group.isExpanded ? (
-                        <div className="skill-group-children">
-                          {item.group.childSkills.map((skill) => (
-                            <div key={skill.path}>{renderSelectableSkillRow(skill, { rowClassName: "child" })}</div>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </ScrollShadow>
-        </section>
-
-        <section className="detail-pane">
-          <div
-            className={`detail-pane-resize-hit ${resizingPane === "middle" ? "is-active" : ""}`}
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="Resize detail panel"
-            onMouseDown={handleDetailPaneResizeStart}
-          />
-          <div className="detail-card shadow-sm">
-            <header className="detail-toolbar">
-              <div className="toolbar-actions">
-                <div className="view-toggle" role="tablist" aria-label="Markdown mode">
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={activeView === "edit"}
-                    aria-label="Edit mode"
-                    className={`view-toggle-btn ${activeView === "edit" ? "is-active shadow-sm" : ""}`}
-                    onClick={() => setActiveView("edit")}
-                  >
-                    <PencilSimple size={16} />
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={activeView === "preview"}
-                    aria-label="Preview mode"
-                    className={`view-toggle-btn ${activeView === "preview" ? "is-active shadow-sm" : ""}`}
-                    onClick={() => setActiveView("preview")}
-                  >
-                    <Eye size={16} />
-                  </button>
-                </div>
-                <Button
-                  isIconOnly
-                  size="sm"
-                  variant="ghost"
-                  className={favorites.includes(selectedPath) ? "is-active" : undefined}
-                  aria-label="Favorite / Unfavorite"
-                  onPress={toggleFavorite}
-                  isDisabled={!selectedPath}
-                >
-                  <Star size={16} weight={favorites.includes(selectedPath) ? "fill" : "bold"} />
-                </Button>
-                <div className="toolbar-collection-wrap" ref={detailCollectionPickerRef}>
-                  <Button
-                    isIconOnly
-                    size="sm"
-                    variant="ghost"
-                    className={selectedCollection ? "is-active" : undefined}
-                    aria-label="Assign collection"
-                    onPress={() => setDetailCollectionPickerOpen((prev) => !prev)}
-                    isDisabled={!selectedPath || collections.length === 0}
-                  >
-                    {selectedCollection ? renderCollectionIcon(selectedCollection.icon, 16) : <FolderSimple size={16} />}
-                  </Button>
-                  {detailCollectionPickerOpen && selectedPath ? (
-                    <div className="toolbar-collection-menu shadow-sm" role="menu" aria-label="Select collection">
-                      {collections.map((collection) => {
-                        const isSelected = selectedCollectionId === collection.id;
-                        return (
-                          <button
-                            key={collection.id}
-                            className={`toolbar-collection-item ${isSelected ? "active" : ""}`}
-                            role="menuitemcheckbox"
-                            aria-checked={isSelected}
-                            onClick={() => toggleCollectionForSelectedSkill(collection.id)}
-                          >
-                            <span className="toolbar-collection-item-icon">{renderCollectionIcon(collection.icon, 14)}</span>
-                            <span className="toolbar-collection-item-name">{collection.name}</span>
-                            <span className="toolbar-collection-item-check">
-                              {isSelected ? <Check size={14} weight="bold" /> : null}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                </div>
-                <Button
-                  isIconOnly
-                  size="sm"
-                  variant="ghost"
-                  aria-label="Reveal in Finder"
-                  onPress={() => void revealSelectedSkill()}
-                  isDisabled={!selectedPath}
-                >
-                  <FolderOpen size={16} />
-                </Button>
-                <Button
-                  isIconOnly
-                  size="sm"
-                  variant="ghost"
-                  aria-label="Delete selected skill"
-                  onPress={handleToolbarDeleteSkill}
-                  isDisabled={!selectedPath}
-                >
-                  <Trash size={16} />
-                </Button>
-              </div>
-              <div className="detail-sequence-controls" aria-label="Skill sequence navigation">
-                <span className="detail-sequence-count">{filteredPositionText}</span>
-                <div className="detail-sequence-buttons">
-                  <Button
-                    isIconOnly
-                    size="sm"
-                    variant="ghost"
-                    className="detail-sequence-btn"
-                    aria-label="Previous skill"
-                    onPress={() => void handleStepSkill(-1)}
-                    isDisabled={visibleNavigableSkills.length === 0 || selectedFilteredIndex <= 0}
-                  >
-                    <ArrowLeft size={16} />
-                  </Button>
-                  <Button
-                    isIconOnly
-                    size="sm"
-                    variant="ghost"
-                    className="detail-sequence-btn"
-                    aria-label="Next skill"
-                    onPress={() => void handleStepSkill(1)}
-                    isDisabled={
-                      visibleNavigableSkills.length === 0 ||
-                      selectedFilteredIndex === -1 ||
-                      selectedFilteredIndex === visibleNavigableSkills.length - 1
-                    }
-                  >
-                    <ArrowRight size={16} />
-                  </Button>
-                </div>
-              </div>
-            </header>
-
-            <section className="detail-content">
-              {loadingDetail ? (
-                <div className="loading-wrap">
-                  <Spinner />
-                </div>
-              ) : activeView === "preview" ? (
-                <ScrollShadow
-                  className="markdown-scroll"
-                  hideScrollBar
-                  orientation="vertical"
-                  variant="fade"
-                  size={44}
-                  offset={10}
-                >
-                  <MarkdownPreview
-                    className="markdown-body"
-                    source={previewContent}
-                    wrapperElement={{ "data-color-mode": themeMode }}
-                  />
-                </ScrollShadow>
-              ) : (
-                <textarea
-                  aria-label="Skill markdown editor"
-                  className="editor-area"
-                  value={editContent}
-                  onChange={(event: ChangeEvent<HTMLTextAreaElement>) => {
-                    const target = event.target as HTMLTextAreaElement | null;
-                    if (!target) return;
-                    setEditContent(target.value);
-                  }}
-                />
-              )}
-            </section>
-
-            <footer className="detail-footer">
-              <span>{selectedMeta}</span>
-              <span>{isSaving ? "Saving..." : isDirty ? "Unsaved · ⌘S Save" : statusText}</span>
-            </footer>
-          </div>
-        </section>
+        <DetailPane
+          resizingPane={resizingPane}
+          activeView={activeView}
+          favoriteSelected={favorites.includes(selectedPath)}
+          selectedPath={selectedPath}
+          selectedCollection={selectedCollection}
+          selectedCollectionId={selectedCollectionId}
+          collections={collections}
+          detailCollectionPickerOpen={detailCollectionPickerOpen}
+          detailCollectionPickerRef={detailCollectionPickerRef}
+          loadingDetail={loadingDetail}
+          previewContent={previewContent}
+          themeMode={themeMode}
+          editContent={editContent}
+          selectedMeta={selectedMeta}
+          isSaving={isSaving}
+          isDirty={isDirty}
+          statusText={statusText}
+          filteredPositionText={filteredPositionText}
+          visibleNavigableSkillsLength={visibleNavigableSkills.length}
+          selectedFilteredIndex={selectedFilteredIndex}
+          onDetailPaneResizeStart={handleDetailPaneResizeStart}
+          onViewChange={setActiveView}
+          onToggleFavorite={toggleFavorite}
+          onToggleCollectionPicker={() => setDetailCollectionPickerOpen((prev) => !prev)}
+          onToggleCollectionForSelectedSkill={toggleCollectionForSelectedSkill}
+          onRevealSelectedSkill={() => void revealSelectedSkill()}
+          onDeleteSelectedSkill={handleToolbarDeleteSkill}
+          onStepSkill={(delta) => void handleStepSkill(delta)}
+          onEditContentChange={setEditContent}
+        />
         </section>
 
         {collectionsPopupOpen ? (
-          <div
-            className="collection-modal-overlay"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Create collection"
-            onClick={() => setCollectionsPopupOpen(false)}
-          >
-            <div className="collection-modal-card shadow-sm" onClick={(event) => event.stopPropagation()}>
-              <label htmlFor="collection-name-input" className="collection-create-label">
-                Collection Name
-              </label>
-              <input
-                id="collection-name-input"
-                className="collection-create-input"
-                value={collectionDraftName}
-                onChange={(event) => {
-                  const target = event.target as HTMLInputElement | null;
-                  if (!target) return;
-                  setCollectionDraftName(target.value);
-                }}
-                placeholder="e.g. Design"
-                maxLength={40}
-                autoFocus
-              />
-              <div className="collection-icon-picker" role="listbox" aria-label="Collection icon">
-                {COLLECTION_ICON_OPTIONS.map((option) => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    className={`collection-icon-option ${collectionDraftIcon === option.key ? "active" : ""}`}
-                    role="option"
-                    aria-selected={collectionDraftIcon === option.key}
-                    onClick={() => setCollectionDraftIcon(option.key)}
-                    title={option.label}
-                  >
-                    {renderCollectionIcon(option.key, 14)}
-                  </button>
-                ))}
-              </div>
-              <div className="confirm-actions">
-                <button className="confirm-btn ghost" onClick={() => setCollectionsPopupOpen(false)}>
-                  Cancel
-                </button>
-                <button
-                  className="confirm-btn primary"
-                  disabled={!collectionDraftName.trim()}
-                  onClick={handleCreateCollection}
-                >
-                  Create
-                </button>
-              </div>
-            </div>
-          </div>
+          <CollectionModal
+            draftName={collectionDraftName}
+            draftIcon={collectionDraftIcon}
+            onDraftNameChange={setCollectionDraftName}
+            onDraftIconChange={setCollectionDraftIcon}
+            onClose={() => setCollectionsPopupOpen(false)}
+            onCreate={handleCreateCollection}
+          />
         ) : null}
 
         {skillContextMenu ? (
-          <div
-            ref={skillContextMenuRef}
-            className="skill-context-menu shadow-sm"
-            style={{ left: `${skillContextMenu.x}px`, top: `${skillContextMenu.y}px` }}
-            role="menu"
-            aria-label="Skill actions"
-          >
-            <button className="skill-context-item" role="menuitem" onClick={() => void handleContextShowInFolder()}>
-              <FolderOpen size={16} />
-              <span>Show in Finder</span>
-            </button>
-            <button
-              className="skill-context-item danger"
-              role="menuitem"
-              onClick={() => void handleContextDeleteSkill()}
-            >
-              <Trash size={16} />
-              <span>Delete</span>
-            </button>
-          </div>
+          <SkillContextMenu
+            menuRef={skillContextMenuRef}
+            x={skillContextMenu.x}
+            y={skillContextMenu.y}
+            ariaLabel="Skill actions"
+            items={[
+              {
+                label: "Show in Finder",
+                icon: <FolderOpen size={16} />,
+                onClick: () => void handleContextShowInFolder(),
+              },
+              {
+                label: "Delete",
+                icon: <Trash size={16} />,
+                danger: true,
+                onClick: () => void handleContextDeleteSkill(),
+              },
+            ]}
+          />
         ) : null}
 
         {collectionContextMenu ? (
-          <div
-            ref={collectionsMenuRef}
-            className="skill-context-menu shadow-sm"
-            style={{ left: `${collectionContextMenu.x}px`, top: `${collectionContextMenu.y}px` }}
-            role="menu"
-            aria-label="Collection actions"
-          >
-            <button className="skill-context-item" role="menuitem" onClick={requestRenameCollection}>
-              <PencilSimple size={16} />
-              <span>Rename</span>
-            </button>
-            <button className="skill-context-item danger" role="menuitem" onClick={requestDeleteCollection}>
-              <Trash size={16} />
-              <span>Delete</span>
-            </button>
-          </div>
+          <SkillContextMenu
+            menuRef={collectionsMenuRef}
+            x={collectionContextMenu.x}
+            y={collectionContextMenu.y}
+            ariaLabel="Collection actions"
+            items={[
+              {
+                label: "Rename",
+                icon: <PencilSimple size={16} />,
+                onClick: requestRenameCollection,
+              },
+              {
+                label: "Delete",
+                icon: <Trash size={16} />,
+                danger: true,
+                onClick: requestDeleteCollection,
+              },
+            ]}
+          />
         ) : null}
 
         {deleteConfirm ? (
-          <div className="confirm-overlay" role="dialog" aria-modal="true" aria-label="Delete skill confirmation">
-            <div className="confirm-card shadow-sm">
-              <h4>{deleteConfirm.step === 1 ? "Delete Skill?" : "Final Confirmation"}</h4>
-              <p>
-                {deleteConfirm.step === 1
-                  ? `Delete "${deleteConfirm.name}" now?`
-                  : "This action cannot be undone. Confirm delete again."}
-              </p>
-              <div className="confirm-actions">
-                <button className="confirm-btn ghost" onClick={() => setDeleteConfirm(null)}>
-                  Cancel
-                </button>
-                <button className="confirm-btn danger" onClick={() => void confirmDeleteSkill()}>
-                  {deleteConfirm.step === 1 ? "Continue" : "Delete"}
-                </button>
-              </div>
-            </div>
-          </div>
+          <ConfirmDialog
+            ariaLabel="Delete skill confirmation"
+            title={deleteConfirm.step === 1 ? "Delete Skill?" : "Final Confirmation"}
+            description={
+              deleteConfirm.step === 1
+                ? `Delete "${deleteConfirm.name}" now?`
+                : "This action cannot be undone. Confirm delete again."
+            }
+            cancelLabel="Cancel"
+            confirmLabel={deleteConfirm.step === 1 ? "Continue" : "Delete"}
+            confirmVariant="danger"
+            onCancel={() => setDeleteConfirm(null)}
+            onConfirm={() => void confirmDeleteSkill()}
+          />
         ) : null}
 
         {collectionRename ? (
-          <div className="confirm-overlay" role="dialog" aria-modal="true" aria-label="Rename collection">
-            <div className="confirm-card shadow-sm">
-              <h4>Rename Collection</h4>
-              <p>Update the collection name.</p>
-              <input
-                className="confirm-input"
-                value={collectionRename.name}
-                onChange={(event) => {
-                  const target = event.target as HTMLInputElement | null;
-                  const nextName = target?.value ?? "";
-                  setCollectionRename((prev) => (prev ? { ...prev, name: nextName } : prev));
-                }}
-                maxLength={40}
-                autoFocus
-              />
-              <div className="confirm-actions">
-                <button className="confirm-btn ghost" onClick={() => setCollectionRename(null)}>
-                  Cancel
-                </button>
-                <button className="confirm-btn primary" onClick={confirmRenameCollection}>
-                  Save
-                </button>
-              </div>
-            </div>
-          </div>
+          <ConfirmDialog
+            ariaLabel="Rename collection"
+            title="Rename Collection"
+            description="Update the collection name."
+            cancelLabel="Cancel"
+            confirmLabel="Save"
+            confirmVariant="primary"
+            inputValue={collectionRename.name}
+            inputMaxLength={40}
+            inputAutoFocus
+            onInputChange={(nextName) => {
+              setCollectionRename((prev) => (prev ? { ...prev, name: nextName } : prev));
+            }}
+            onCancel={() => setCollectionRename(null)}
+            onConfirm={confirmRenameCollection}
+          />
         ) : null}
 
         {collectionDeleteId ? (
-          <div className="confirm-overlay" role="dialog" aria-modal="true" aria-label="Delete collection confirmation">
-            <div className="confirm-card shadow-sm">
-              <h4>Delete Collection?</h4>
-              <p>This only removes the category. Skills will not be deleted.</p>
-              <div className="confirm-actions">
-                <button className="confirm-btn ghost" onClick={() => setCollectionDeleteId(null)}>
-                  Cancel
-                </button>
-                <button className="confirm-btn danger" onClick={confirmDeleteCollection}>
-                  Delete
-                </button>
-              </div>
-            </div>
-          </div>
+          <ConfirmDialog
+            ariaLabel="Delete collection confirmation"
+            title="Delete Collection?"
+            description="This only removes the category. Skills will not be deleted."
+            cancelLabel="Cancel"
+            confirmLabel="Delete"
+            confirmVariant="danger"
+            onCancel={() => setCollectionDeleteId(null)}
+            onConfirm={confirmDeleteCollection}
+          />
         ) : null}
       </main>
     </IconContext.Provider>

@@ -25,6 +25,8 @@ src-tauri/gen/schemas/
 !.env.example
 *.local
 .superpowers/
+docs/superpowers/plans/
+docs/superpowers/specs/2026-03-23-app-shell-decomposition-design.md
 
 # Local skill source folders (personal environment)
 .codex/
