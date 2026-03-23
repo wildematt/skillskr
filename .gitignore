@@ -24,6 +24,7 @@ src-tauri/gen/schemas/
 .env.*
 !.env.example
 *.local
+.superpowers/
 
 # Local skill source folders (personal environment)
 .codex/
