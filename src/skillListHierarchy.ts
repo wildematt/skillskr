@@ -61,7 +61,7 @@ export function createSkillGroupKey(tool: string, topLevelDirectory: string): st
 
 function parseSkillPath(relativePath: string): ParsedSkillPath {
   const segments = relativePath.split("/").filter(Boolean);
-  if (segments.at(-1) !== "SKILL.md") {
+  if (segments[segments.length - 1] !== "SKILL.md") {
     return { kind: "unknown" };
   }
 

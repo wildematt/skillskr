@@ -11,6 +11,7 @@ import {
   ArrowRight,
   ArrowsClockwise,
   BugBeetle,
+  CaretRight,
   Check,
   Code,
   Cpu,
@@ -33,6 +34,7 @@ import {
   Wrench,
 } from "@phosphor-icons/react";
 import MarkdownPreview from "@uiw/react-markdown-preview";
+import { deriveSkillListHierarchy, type GroupedSkillGroup } from "./skillListHierarchy";
 
 type SkillSummary = {
   id: string;
@@ -139,6 +141,7 @@ type SkillSiteTab = {
 const FAVORITES_KEY = "skillskr.favorites.v1";
 const COLLECTIONS_KEY = "skillskr.collections.v1";
 const SKILL_COLLECTIONS_KEY = "skillskr.skillCollections.v1";
+const SKILL_GROUP_COLLAPSE_KEY = "skillskr.skillGroupCollapse.v1";
 const TOOL_ORDER = ["Claude Code", "Cursor", "Windsurf", "Codex", "Agents", "Continue"];
 const LEFT_PANE_KEY = "skillskr.leftPaneWidth.v1";
 const MIDDLE_PANE_KEY = "skillskr.middlePaneWidth.v1";
@@ -316,6 +319,27 @@ function loadSkillCollections(): Record<string, string> {
   }
 }
 
+function loadSkillGroupCollapse(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(SKILL_GROUP_COLLAPSE_KEY);
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      return {};
+    }
+    return Object.entries(parsed).reduce<Record<string, boolean>>((acc, [groupKey, isCollapsed]) => {
+      if (typeof groupKey === "string" && typeof isCollapsed === "boolean") {
+        acc[groupKey] = isCollapsed;
+      }
+      return acc;
+    }, {});
+  } catch {
+    return {};
+  }
+}
+
 function createCollectionId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
@@ -395,6 +419,7 @@ function App() {
   const [favorites, setFavorites] = useState<string[]>(() => initialAppStateRef.current.favorites);
   const [collections, setCollections] = useState<CollectionItem[]>(() => initialAppStateRef.current.collections);
   const [skillCollections, setSkillCollections] = useState<Record<string, string>>(() => initialAppStateRef.current.skillCollections);
+  const [collapsedSkillGroups, setCollapsedSkillGroups] = useState<Record<string, boolean>>(() => loadSkillGroupCollapse());
   const [selectedPath, setSelectedPath] = useState("");
   const [search, setSearch] = useState("");
   const [activeView, setActiveView] = useState<"preview" | "edit">("preview");
@@ -507,6 +532,18 @@ function App() {
     });
   }, [favorites, search, sidebarKey, skillCollections, skills]);
 
+  const skillListHierarchy = useMemo(
+    () =>
+      deriveSkillListHierarchy({
+        skills: filteredSkills,
+        collapsedGroups: collapsedSkillGroups,
+        search,
+      }),
+    [collapsedSkillGroups, filteredSkills, search],
+  );
+
+  const visibleNavigableSkills = skillListHierarchy.visibleNavigableSkills;
+
   const isDirty = originContent !== editContent;
 
   const selectedMeta = useMemo(() => {
@@ -517,12 +554,12 @@ function App() {
   }, [editContent, selectedSkill]);
 
   const selectedFilteredIndex = useMemo(
-    () => filteredSkills.findIndex((skill) => skill.path === selectedPath),
-    [filteredSkills, selectedPath],
+    () => visibleNavigableSkills.findIndex((skill) => skill.path === selectedPath),
+    [selectedPath, visibleNavigableSkills],
   );
 
   const filteredPositionText = useMemo(() => {
-    const total = filteredSkills.length;
+    const total = visibleNavigableSkills.length;
     if (total === 0) {
       return "0 of 0";
     }
@@ -530,7 +567,7 @@ function App() {
       return `0 of ${total}`;
     }
     return `${selectedFilteredIndex + 1} of ${total}`;
-  }, [filteredSkills.length, selectedFilteredIndex]);
+  }, [selectedFilteredIndex, visibleNavigableSkills.length]);
 
   const previewContent = useMemo(() => {
     const stripped = stripFrontMatterForPreview(editContent).trimStart();
@@ -543,8 +580,8 @@ function App() {
   );
 
   const skillListScrollShadowKey = useMemo(
-    () => `${sidebarKey}-${search}-${loadingSkills ? "loading" : filteredSkills.length}`,
-    [filteredSkills.length, loadingSkills, search, sidebarKey],
+    () => `${sidebarKey}-${search}-${loadingSkills ? "loading" : skillListHierarchy.items.length}`,
+    [loadingSkills, search, sidebarKey, skillListHierarchy.items.length],
   );
 
   const activeSkillSiteTab = useMemo(
@@ -601,7 +638,7 @@ function App() {
     if (!selectedPath) {
       return;
     }
-    const existsInCurrentList = filteredSkills.some((skill) => skill.path === selectedPath);
+    const existsInCurrentList = visibleNavigableSkills.some((skill) => skill.path === selectedPath);
     if (!existsInCurrentList) {
       return;
     }
@@ -614,7 +651,7 @@ function App() {
       lastScrolledSidebarKeyRef.current = sidebarKey;
     });
     return () => window.cancelAnimationFrame(frameId);
-  }, [filteredSkills, selectedPath, sidebarKey]);
+  }, [selectedPath, sidebarKey, visibleNavigableSkills]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
@@ -656,6 +693,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem(SKILL_COLLECTIONS_KEY, JSON.stringify(skillCollections));
   }, [skillCollections]);
+
+  useEffect(() => {
+    localStorage.setItem(SKILL_GROUP_COLLAPSE_KEY, JSON.stringify(collapsedSkillGroups));
+  }, [collapsedSkillGroups]);
 
   useEffect(() => {
     localStorage.setItem(LEFT_PANE_KEY, String(leftPaneWidth));
@@ -816,20 +857,24 @@ function App() {
   }
 
   async function handleStepSkill(delta: -1 | 1) {
-    if (filteredSkills.length === 0) {
+    if (visibleNavigableSkills.length === 0 || selectedFilteredIndex < 0) {
       return;
     }
 
     let targetIndex = selectedFilteredIndex + delta;
-    if (selectedFilteredIndex < 0) {
-      targetIndex = delta > 0 ? 0 : filteredSkills.length - 1;
-    }
-    const clampedIndex = Math.min(filteredSkills.length - 1, Math.max(0, targetIndex));
-    const target = filteredSkills[clampedIndex];
+    const clampedIndex = Math.min(visibleNavigableSkills.length - 1, Math.max(0, targetIndex));
+    const target = visibleNavigableSkills[clampedIndex];
     if (!target || target.path === selectedPath) {
       return;
     }
     await handleSelectSkill(target.path);
+  }
+
+  function toggleSkillGroup(groupKey: string) {
+    setCollapsedSkillGroups((prev) => ({
+      ...prev,
+      [groupKey]: !prev[groupKey],
+    }));
   }
 
   async function handleOpenSkillSite(url: string) {
@@ -1427,6 +1472,108 @@ function App() {
     });
   }
 
+  function renderSelectableSkillRow(
+    skill: SkillSummary,
+    options?: {
+      rowClassName?: string;
+      showParentBadge?: boolean;
+      groupCount?: number;
+      groupExpanded?: boolean;
+      onToggleGroup?: (event: React.MouseEvent<HTMLButtonElement>) => void;
+    },
+  ) {
+    const isFavorite = favorites.includes(skill.path);
+    const isActive = selectedPath === skill.path;
+
+    return (
+      <div className={`skill-row ${isActive ? "active shadow-sm" : ""} ${options?.rowClassName ?? ""}`.trim()}>
+        <button
+          className="skill-row-main"
+          onClick={() => void handleSelectSkill(skill.path)}
+          onContextMenu={(event) => handleSkillContextMenu(event, skill)}
+          ref={(element) => {
+            skillRowRefs.current[skill.path] = element;
+          }}
+        >
+          <span className="tool-badge" aria-hidden="true">
+            <span className="tool-badge-icon" style={toolIconStyle(skill.tool)}>
+              {renderToolIcon(skill.tool)}
+            </span>
+          </span>
+          <span className="mail-main">
+            <span className="mail-name-row">
+              <span className="mail-name">{skill.name}</span>
+              {options?.showParentBadge ? <span className="skill-parent-chip">Parent</span> : null}
+            </span>
+          </span>
+        </button>
+        <div className="skill-row-side">
+          {typeof options?.groupCount === "number" ? <span className="skill-group-count">{options.groupCount}</span> : null}
+          <span
+            className={`mail-star ${isFavorite ? "on" : ""}`}
+            role="button"
+            tabIndex={0}
+            aria-label={isFavorite ? "Unfavorite skill" : "Favorite skill"}
+            onClick={(event) => handleSkillRowFavoriteClick(event, skill.path)}
+            onKeyDown={(event) => handleSkillRowFavoriteKeyDown(event, skill.path)}
+          >
+            <Star size={16} weight={isFavorite ? "fill" : "bold"} />
+          </span>
+          {options?.onToggleGroup ? (
+            <button
+              type="button"
+              className={`skill-group-toggle ${options.groupExpanded ? "is-expanded" : ""}`}
+              aria-label={options.groupExpanded ? "Collapse skill group" : "Expand skill group"}
+              aria-expanded={options.groupExpanded}
+              onClick={options.onToggleGroup}
+            >
+              <CaretRight size={14} />
+            </button>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  function renderGroupHeader(group: GroupedSkillGroup) {
+    const tool = group.parentSkill?.tool ?? group.childSkills[0]?.tool ?? "generic";
+
+    return (
+      <div className="skill-row skill-row-group-only">
+        <button
+          type="button"
+          className="skill-row-main skill-row-group-main"
+          aria-label={group.isExpanded ? "Collapse skill group" : "Expand skill group"}
+          aria-expanded={group.isExpanded}
+          onClick={() => toggleSkillGroup(group.groupKey)}
+        >
+          <span className="tool-badge" aria-hidden="true">
+            <span className="tool-badge-icon" style={toolIconStyle(tool)}>
+              {renderToolIcon(tool)}
+            </span>
+          </span>
+          <span className="mail-main">
+            <span className="mail-name-row">
+              <span className="mail-name">{group.groupLabel}</span>
+            </span>
+          </span>
+        </button>
+        <div className="skill-row-side">
+          <span className="skill-group-count">{group.childCount}</span>
+          <button
+            type="button"
+            className={`skill-group-toggle ${group.isExpanded ? "is-expanded" : ""}`}
+            aria-label={group.isExpanded ? "Collapse skill group" : "Expand skill group"}
+            aria-expanded={group.isExpanded}
+            onClick={() => toggleSkillGroup(group.groupKey)}
+          >
+            <CaretRight size={14} />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <IconContext.Provider value={{ weight: "bold", size: 16 }}>
       <main
@@ -1640,36 +1787,35 @@ function App() {
               </div>
             ) : (
               <div className="skill-list">
-                {filteredSkills.map((skill) => (
-                  <button
-                    key={skill.path}
-                    className={`skill-row ${selectedPath === skill.path ? "active shadow-sm" : ""}`}
-                    onClick={() => void handleSelectSkill(skill.path)}
-                    onContextMenu={(event) => handleSkillContextMenu(event, skill)}
-                    ref={(element) => {
-                      skillRowRefs.current[skill.path] = element;
-                    }}
-                  >
-                    <span className="tool-badge" aria-hidden="true">
-                      <span className="tool-badge-icon" style={toolIconStyle(skill.tool)}>
-                        {renderToolIcon(skill.tool)}
-                      </span>
-                    </span>
-                    <span className="mail-main">
-                      <span className="mail-name">{skill.name}</span>
-                      <span
-                        className={`mail-star ${favorites.includes(skill.path) ? "on" : ""}`}
-                        role="button"
-                        tabIndex={0}
-                        aria-label={favorites.includes(skill.path) ? "Unfavorite skill" : "Favorite skill"}
-                        onClick={(event) => handleSkillRowFavoriteClick(event, skill.path)}
-                        onKeyDown={(event) => handleSkillRowFavoriteKeyDown(event, skill.path)}
-                      >
-                        <Star size={16} weight={favorites.includes(skill.path) ? "fill" : "bold"} />
-                      </span>
-                    </span>
-                  </button>
-                ))}
+                {skillListHierarchy.items.map((item) => {
+                  if (item.type === "skill") {
+                    return <div key={item.skill.path}>{renderSelectableSkillRow(item.skill)}</div>;
+                  }
+
+                  return (
+                    <div key={item.group.groupKey} className="skill-group">
+                      {item.group.parentSkill
+                        ? renderSelectableSkillRow(item.group.parentSkill, {
+                            rowClassName: "skill-row-parent",
+                            showParentBadge: true,
+                            groupCount: item.group.childCount,
+                            groupExpanded: item.group.isExpanded,
+                            onToggleGroup: (event) => {
+                              event.stopPropagation();
+                              toggleSkillGroup(item.group.groupKey);
+                            },
+                          })
+                        : renderGroupHeader(item.group)}
+                      {item.group.isExpanded ? (
+                        <div className="skill-group-children">
+                          {item.group.childSkills.map((skill) => (
+                            <div key={skill.path}>{renderSelectableSkillRow(skill, { rowClassName: "child" })}</div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </ScrollShadow>
@@ -1785,7 +1931,7 @@ function App() {
                     className="detail-sequence-btn"
                     aria-label="Previous skill"
                     onPress={() => void handleStepSkill(-1)}
-                    isDisabled={filteredSkills.length === 0 || selectedFilteredIndex === 0}
+                    isDisabled={visibleNavigableSkills.length === 0 || selectedFilteredIndex <= 0}
                   >
                     <ArrowLeft size={16} />
                   </Button>
@@ -1797,9 +1943,9 @@ function App() {
                     aria-label="Next skill"
                     onPress={() => void handleStepSkill(1)}
                     isDisabled={
-                      filteredSkills.length === 0 ||
+                      visibleNavigableSkills.length === 0 ||
                       selectedFilteredIndex === -1 ||
-                      selectedFilteredIndex === filteredSkills.length - 1
+                      selectedFilteredIndex === visibleNavigableSkills.length - 1
                     }
                   >
                     <ArrowRight size={16} />
