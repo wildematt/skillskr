@@ -62,7 +62,7 @@ Introduce a frontend-only derived structure for the middle list. The raw `skills
 
 `GroupedSkillGroup`
 
-- `groupKey`: stable key derived from `tool + parent directory path`
+- `groupKey`: stable key in the format `<tool>::<topLevelDirectory>`
 - `groupLabel`: parent skill name when available, otherwise the directory name
 - `directoryName`: raw parent directory segment
 - `parentSkill`: optional real skill for `parentDir/SKILL.md`
@@ -86,6 +86,8 @@ For each `filteredSkills` entry:
   - more than 2 segments: group by the first segment for this iteration
 
 This intentionally treats the top-level directory as the visible parent group. The first version does not attempt to surface deeper nesting levels in the middle column.
+
+For v1, both grouping and persistence are keyed only by the first directory segment after the source root. A deeper path such as `pack/subpack/child/SKILL.md` still belongs to the top-level group `pack`.
 
 ### 2. Parent skill detection
 
@@ -158,6 +160,8 @@ Children render immediately under the parent row when expanded.
 - clicking a selectable parent row selects that parent skill
 - collapsing a group hides its children entirely
 
+If the currently selected skill becomes hidden because its group was collapsed, keep `selectedPath` unchanged and keep the detail pane bound to that selected skill. The hidden skill simply stops rendering as a highlighted visible row until the group is expanded again.
+
 ### Selection behavior
 
 Selection remains skill-based, not group-based.
@@ -175,6 +179,12 @@ That means:
 - pure group headers do not count as steps in sequence navigation
 - parent skills count as steps only when they are real skills
 - child skills count normally
+
+When the current `selectedPath` is not present in the visible navigable list, sequence navigation should treat it as "not in visible sequence":
+
+- no row in the middle list is highlighted on behalf of that hidden item
+- the position indicator falls back to `0 of N`
+- previous/next controls are disabled until the selected skill becomes visible again or the user selects a visible skill
 
 ## State Management
 
@@ -197,6 +207,7 @@ Where:
 
 - `true` means collapsed
 - `false` or missing means expanded
+- the key format is always `<tool>::<topLevelDirectory>` in v1
 
 Rules:
 
@@ -213,13 +224,16 @@ Suggested flow:
 
 1. compute `filteredSkills` exactly as today
 2. derive `groupedSkillListItems` from `filteredSkills`
-3. render `groupedSkillListItems` instead of directly mapping `filteredSkills`
-4. preserve `selectedFilteredIndex` and sequence navigation against a flat list of visible real skills, not rendered group containers
+3. derive `visibleNavigableSkills` as a flat list of visible real skills from the grouped structure
+4. render `groupedSkillListItems` instead of directly mapping `filteredSkills`
+5. derive navigation position from `selectedPath` inside `visibleNavigableSkills`, not from raw `filteredSkills`
 
 This keeps the data ownership clean:
 
 - raw skill behavior stays on `skills` / `filteredSkills`
 - UI hierarchy stays in a view-model layer
+- selection source of truth remains `selectedPath`
+- indices are derived values and must never become the primary selection state
 
 ## Styling Direction
 
@@ -260,6 +274,8 @@ If a directory has no parent `SKILL.md` but has multiple child skills, render a 
 
 Matching groups render expanded while search is active so matched children remain visible.
 
+If search or sidebar filtering removes the selected skill from `filteredSkills` entirely, keep `selectedPath` and the detail pane unchanged, but remove visible-list highlight and navigation position until the selected skill becomes visible again. This preserves current selection semantics while avoiding accidental re-selection.
+
 ### Mixed tools
 
 The group key must include the tool name so unrelated sources using the same top-level directory name do not share collapse state.
@@ -296,6 +312,8 @@ At minimum:
   - expand/collapse
   - parent selection
   - child selection
+  - selected child hidden by collapse
+  - selected skill hidden by filters
   - search results
   - favorites
   - previous/next navigation
