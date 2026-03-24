@@ -29,18 +29,58 @@
       html[data-theme="light"] body {
         background: #f4f4f5;
         color: #1b1b1f;
+        --boot-overlay-background: #f4f4f5;
+        --boot-spinner-track: rgb(27 27 31 / 0.14);
+        --boot-spinner-head: #1b1b1f;
       }
 
       html[data-theme="dark"],
       html[data-theme="dark"] body {
         background: #14161c;
         color: #f3f4f6;
+        --boot-overlay-background: #14161c;
+        --boot-spinner-track: rgb(243 244 246 / 0.18);
+        --boot-spinner-head: #f3f4f6;
+      }
+
+      #app-boot-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: grid;
+        place-items: center;
+        background: var(--boot-overlay-background);
+        opacity: 1;
+        transition: opacity 0.18s ease;
+      }
+
+      #app-boot-overlay.is-exiting {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .boot-spinner {
+        width: 34px;
+        height: 34px;
+        border-radius: 999px;
+        border: 3px solid var(--boot-spinner-track);
+        border-top-color: var(--boot-spinner-head);
+        animation: boot-spin 0.75s linear infinite;
+      }
+
+      @keyframes boot-spin {
+        to {
+          transform: rotate(360deg);
+        }
       }
     </style>
     <title>Tauri + React + Typescript</title>
   </head>
 
   <body>
+    <div id="app-boot-overlay" aria-label="Loading" role="status">
+      <div class="boot-spinner" aria-hidden="true"></div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

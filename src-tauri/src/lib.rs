@@ -5,6 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::UNIX_EPOCH;
+use tauri::webview::PageLoadEvent;
 use tauri::{Manager, PhysicalPosition, PhysicalSize, Position, Size, Window, WindowEvent};
 use walkdir::WalkDir;
 
@@ -186,6 +187,10 @@ fn restore_window_state(window: &Window) {
     if state.maximized {
         let _ = window.maximize();
     }
+}
+
+fn should_reveal_window_on_page_load(event: PageLoadEvent) -> bool {
+    matches!(event, PageLoadEvent::Finished)
 }
 
 fn build_source_defs() -> Vec<SkillSourceDef> {
@@ -748,10 +753,15 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 let host_window = window.as_ref().window();
                 restore_window_state(&host_window);
-                let _ = host_window.show();
-                let _ = host_window.set_focus();
             }
             Ok(())
+        })
+        .on_page_load(|webview, payload| {
+            if should_reveal_window_on_page_load(payload.event()) {
+                let window = webview.window();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
         })
         .on_window_event(|window, event| match event {
             WindowEvent::Moved(_) | WindowEvent::Resized(_) | WindowEvent::CloseRequested { .. } => {
@@ -846,6 +856,12 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn reveals_window_only_after_page_finishes_loading() {
+        assert!(!should_reveal_window_on_page_load(PageLoadEvent::Started));
+        assert!(should_reveal_window_on_page_load(PageLoadEvent::Finished));
     }
 
     #[test]

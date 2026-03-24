@@ -42,6 +42,7 @@ import { createSkillListScrollShadowKey } from "./scrollShadowKeys";
 import { shouldAutoScrollSelectedSkill } from "./selectedSkillAutoScroll";
 import { shouldPersistSidebarSelection } from "./sidebarSelectionMemory";
 import { toggleFavoritePath } from "./toggleFavoritePath";
+import { dismissBootOverlay } from "./bootOverlay";
 
 type SkillContextMenuState = {
   path: string;
@@ -99,6 +100,7 @@ function App() {
   const skillListScrollPositionsRef = useRef<Record<string, number>>({});
   const isRestoringSkillListScrollRef = useRef(false);
   const pendingSidebarSelectionRestoreRef = useRef<{ sidebarKey: string; targetPath: string } | null>(null);
+  const bootOverlayDismissedRef = useRef(false);
 
   const [loadingSkills, setLoadingSkills] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -441,6 +443,14 @@ function App() {
     root.classList.toggle("dark", themeMode === "dark");
     root.classList.toggle("light", themeMode === "light");
   }, [themeMode]);
+
+  useEffect(() => {
+    if (bootOverlayDismissedRef.current || !appStateReady || loadingSkills || !skillsLoadedOnce) {
+      return;
+    }
+
+    bootOverlayDismissedRef.current = dismissBootOverlay();
+  }, [appStateReady, loadingSkills, skillsLoadedOnce]);
 
   useEffect(() => {
     localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
